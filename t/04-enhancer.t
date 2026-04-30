@@ -40,6 +40,20 @@ MARKDOWN
 }
 
 {
+    my $lines = $enhancer->markdown_to_pdf_lines(<<'MARKDOWN');
+# Heading
+- bullet item
+
+plain paragraph
+MARKDOWN
+
+    ok( scalar grep { $_ eq '# Heading' } @{$lines}, 'enhancer keeps heading markers for downstream pdf heading rendering' );
+    ok( scalar grep { $_ eq '* bullet item' } @{$lines}, 'enhancer keeps bullet markers for downstream pdf list rendering' );
+    ok( scalar grep { $_ eq '' } @{$lines}, 'enhancer keeps blank lines for downstream pdf spacing' );
+    ok( scalar grep { $_ eq 'plain paragraph' } @{$lines}, 'enhancer keeps paragraph text for downstream pdf rendering' );
+}
+
+{
     my $html = $enhancer->preprocess_for_html(<<'MARKDOWN');
 > quoted `value`
 

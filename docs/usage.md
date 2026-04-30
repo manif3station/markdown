@@ -55,6 +55,8 @@ Markdown with a table and inline code to pdf:
 dashboard markdown.convert report.md report.pdf
 ```
 
+That pdf path now draws a visible table layout for markdown pipe tables and removes raw markdown markers from the cell text.
+
 HTML back to markdown:
 
 ```bash

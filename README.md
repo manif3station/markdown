@@ -95,6 +95,8 @@ dashboard markdown.convert report.md report.pdf
 
 The resulting pdf now strips raw pipe-table syntax and backticks instead of printing the markdown markers directly.
 
+For markdown tables, the pdf renderer now draws table cell structure instead of collapsing the table into plain paragraph text.
+
 Convert html back to markdown with the same basename:
 
 ```bash

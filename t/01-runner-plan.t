@@ -261,7 +261,9 @@ MARKDOWN
     my $pdf_obj = bless {}, 'PDF::API2';
     my $page_obj = bless {}, 'PDF::API2::Page';
     my $text_obj = bless {}, 'PDF::API2::Content';
+    my $gfx_obj = bless {}, 'PDF::API2::Content';
     my $font_obj = bless {}, 'PDF::API2::Resource::Font::CoreFont';
+    my @drawn_rects;
 
     local $INC{'PDF/API2.pm'} = __FILE__;
     local *PDF::API2::new      = sub { return $pdf_obj };
@@ -276,9 +278,12 @@ MARKDOWN
     };
     local *PDF::API2::Page::mediabox = sub { return 1 };
     local *PDF::API2::Page::text     = sub { return $text_obj };
+    local *PDF::API2::Page::gfx      = sub { return $gfx_obj };
     local *PDF::API2::Content::font      = sub { return 1 };
     local *PDF::API2::Content::translate = sub { return 1 };
     local *PDF::API2::Content::text      = sub { push @drawn_text, $_[1]; return 1 };
+    local *PDF::API2::Content::rect      = sub { push @drawn_rects, [ @_[ 1 .. 4 ] ]; return 1 };
+    local *PDF::API2::Content::stroke    = sub { return 1 };
     local *PDF::API2::Resource::Font::CoreFont::width = sub { return length( $_[1] || '' ) * 500 };
 
     my $markdown = join "\n",
@@ -286,9 +291,10 @@ MARKDOWN
       '## Sub Heading',
       '### Minor Heading',
       '- bullet item',
-      '| Name | Value |',
-      '| --- | --- |',
-      '| `alpha` | beta |',
+      '| Production class | Planned test file | Status | Current line coverage |',
+      '| --- | --- | --- | --- |',
+      '| `AdditionalAllocationEmailServiceImpl.java` | `AdditionalAllocationEmailServiceImplTest.java` | present and contributing | `15.6%` (`24/151`) |',
+      '| `AssignmentHelperDTO.java` | `AssignmentHelperDTOTest.java` | present and contributing | `100%` (`48/48`) |',
       ('word ' x 120),
       ( map { "body line $_" } 1 .. 220 );
 
@@ -296,9 +302,10 @@ MARKDOWN
     ok( $default_runner->{markdown_to_pdf}->( $markdown, $to ), 'default markdown to pdf path uses PDF::API2' );
     ok( -f $to, 'default markdown to pdf path writes the target file' );
     ok( scalar(@page_calls) > 1, 'default markdown to pdf path can start a new page when the content is long enough' );
-    ok( scalar grep { defined $_ && $_ =~ /alpha/ && $_ !~ /`alpha`/ } @drawn_text, 'default markdown to pdf strips inline-code backticks before drawing text' );
-    ok( scalar grep { defined $_ && $_ =~ /Name\s+Value/ } @drawn_text, 'default markdown to pdf renders table header text without raw pipe syntax' );
-    ok( scalar grep { defined $_ && $_ =~ /alpha\s+beta/ } @drawn_text, 'default markdown to pdf renders table row text without raw pipe syntax' );
+    ok( scalar @drawn_rects >= 12, 'default markdown to pdf draws table cell rectangles for the markdown table' );
+    ok( scalar grep { defined $_ && $_ =~ /ServiceImpl\.java/ && $_ !~ /`/ } @drawn_text, 'default markdown to pdf strips inline-code backticks before drawing table text' );
+    ok( scalar grep { defined $_ && $_ =~ /Production class/ } @drawn_text, 'default markdown to pdf renders the table header text' );
+    ok( scalar grep { defined $_ && $_ =~ /Current line/ } @drawn_text, 'default markdown to pdf renders wrapped table header text' );
     ok( !scalar grep { defined $_ && /\|/ } @drawn_text, 'default markdown to pdf does not draw raw pipe-table characters' );
 }
 
@@ -317,6 +324,64 @@ MARKDOWN
     my $markdown = $default_runner->{pdf_to_markdown}->('stub.pdf');
     like( $markdown, qr/page one/, 'default pdf to markdown path uses CAM::PDF' );
     like( $markdown, qr/page two/, 'default pdf to markdown path keeps later page text' );
+}
+
+{
+    my @new_page_calls;
+    my @table_text;
+    my $pdf_obj = bless {}, 'PDF::API2';
+    my $page_obj = bless {}, 'PDF::API2::Page';
+    my $text_obj = bless {}, 'PDF::API2::Content';
+    my $gfx_obj = bless {}, 'PDF::API2::Content';
+    my $font_obj = bless {}, 'PDF::API2::Resource::Font::CoreFont';
+
+    no warnings 'redefine';
+    no warnings 'once';
+    local *Markdown::Runner::_new_pdf_page = sub {
+        push @new_page_calls, 1;
+        return ( $page_obj, $text_obj, $gfx_obj, 742 );
+    };
+    local *PDF::API2::Content::font      = sub { return 1 };
+    local *PDF::API2::Content::translate = sub { return 1 };
+    local *PDF::API2::Content::text      = sub { push @table_text, $_[1]; return 1 };
+    local *PDF::API2::Content::rect      = sub { return 1 };
+    local *PDF::API2::Content::stroke    = sub { return 1 };
+    local *PDF::API2::Resource::Font::CoreFont::width = sub { return length( $_[1] || '' ) * 500 };
+
+    my ( undef, undef, undef, $y ) = Markdown::Runner::_render_pdf_table(
+        pdf          => $pdf_obj,
+        page         => $page_obj,
+        text         => $text_obj,
+        gfx          => $gfx_obj,
+        y            => 60,
+        rows         => [
+            [ 'Production class', 'Status' ],
+            [ '`AdditionalAllocationEmailServiceImpl.java`', 'present and contributing' ],
+        ],
+        x            => 50,
+        width        => 495,
+        font_regular => $font_obj,
+        font_bold    => $font_obj,
+    );
+
+    ok( scalar @new_page_calls >= 1, 'pdf table renderer starts a new page when the remaining vertical space is too small' );
+    ok( scalar grep { $_ =~ /AdditionalAllocation/ && $_ !~ /`/ } @table_text, 'pdf table renderer strips backticks from cell text on page-break path' );
+    ok( $y < 742, 'pdf table renderer consumes space after the new page is allocated' );
+}
+
+{
+    my @blank = Markdown::Runner::_pdf_lines_for_block( { type => 'blank' } );
+    is_deeply( \@blank, [''], 'pdf block renderer keeps blank blocks as empty lines' );
+}
+
+{
+    my @code = Markdown::Runner::_pdf_lines_for_block( { type => 'code', lines => [ 'my $x = 1;', 'return $x;' ] } );
+    is_deeply( \@code, [ 'my $x = 1;', 'return $x;' ], 'pdf block renderer returns code block lines unchanged' );
+}
+
+{
+    my @unknown = Markdown::Runner::_pdf_lines_for_block( { type => 'mystery' } );
+    is_deeply( \@unknown, [], 'pdf block renderer returns no lines for unknown block types' );
 }
 
 done_testing;

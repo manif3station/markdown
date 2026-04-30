@@ -1,5 +1,10 @@
 Revision history for markdown
 
+0.06 2026-04-30
+    - changed markdown-to-pdf table handling from flattened text rows to drawn table cells
+    - stripped inline markdown markers from pdf table cell content
+    - added PDF table rendering proofs with realistic multi-column data on Linux and macOS
+
 0.05 2026-04-30
     - added a skill-local `Markdown::Enhancer` layer on top of the CPAN stack
     - fixed markdown tables so html output renders real `<table>` markup

@@ -218,61 +218,152 @@ sub _default_markdown_to_pdf {
     $enhancer ||= Markdown::Enhancer->new;
 
     my $pdf = PDF::API2->new;
-    my $page = $pdf->page;
-    $page->mediabox('A4');
-    my $text = $page->text;
     my $font_regular = $pdf->corefont( 'Helvetica',      -encoding => 'utf8' );
     my $font_bold    = $pdf->corefont( 'Helvetica-Bold', -encoding => 'utf8' );
     my $x = 50;
-    my $y = 792 - 50;
     my $width = 595 - 100;
+    my ( $page, $text, $gfx, $y ) = _new_pdf_page($pdf);
 
-    for my $raw_line ( @{ $enhancer->markdown_to_pdf_lines($markdown) } ) {
-        my $line = $raw_line;
-        my $font = $font_regular;
-        my $size = 12;
-        my $leading = 16;
-
-        if ( $line =~ s/^###\s+// ) {
-            $font = $font_bold;
-            $size = 14;
-            $leading = 20;
-        }
-        elsif ( $line =~ s/^##\s+// ) {
-            $font = $font_bold;
-            $size = 18;
-            $leading = 24;
-        }
-        elsif ( $line =~ s/^#\s+// ) {
-            $font = $font_bold;
-            $size = 24;
-            $leading = 30;
-        }
-        elsif ( $line =~ s/^[-*]\s+/* / ) {
-            $size = 12;
+    for my $block ( @{ $enhancer->parse_blocks($markdown) } ) {
+        if ( $block->{type} eq 'table' ) {
+            ( $page, $text, $gfx, $y ) = _render_pdf_table(
+                pdf          => $pdf,
+                page         => $page,
+                text         => $text,
+                gfx          => $gfx,
+                y            => $y,
+                rows         => $block->{rows},
+                x            => $x,
+                width        => $width,
+                font_regular => $font_regular,
+                font_bold    => $font_bold,
+            );
+            next;
         }
 
-        my @wrapped = _wrap_text( $font, $size, $line, $width );
-        @wrapped = ('') if !@wrapped;
+        my @lines = _pdf_lines_for_block($block);
+        for my $raw_line (@lines) {
+            my $line = $raw_line;
+            my $font = $font_regular;
+            my $size = 12;
+            my $leading = 16;
 
-        for my $segment (@wrapped) {
-            if ( $y < 50 ) {
-                $page = $pdf->page;
-                $page->mediabox('A4');
-                $text = $page->text;
-                $y = 792 - 50;
+            if ( $line =~ s/^###\s+// ) {
+                $font = $font_bold;
+                $size = 14;
+                $leading = 20;
             }
-            $text->font( $font, $size );
-            $text->translate( $x, $y );
-            $text->text($segment);
-            $y -= $leading;
-        }
+            elsif ( $line =~ s/^##\s+// ) {
+                $font = $font_bold;
+                $size = 18;
+                $leading = 24;
+            }
+            elsif ( $line =~ s/^#\s+// ) {
+                $font = $font_bold;
+                $size = 24;
+                $leading = 30;
+            }
+            elsif ( $line =~ s/^[-*]\s+/* / ) {
+                $size = 12;
+            }
 
-        $y -= 6 if $raw_line =~ /^\s*$/;
+            my @wrapped = _wrap_text( $font, $size, $line, $width );
+            @wrapped = ('') if !@wrapped;
+
+            for my $segment (@wrapped) {
+                if ( $y < 50 ) {
+                    ( $page, $text, $gfx, $y ) = _new_pdf_page($pdf);
+                }
+                $text->font( $font, $size );
+                $text->translate( $x, $y );
+                $text->text($segment);
+                $y -= $leading;
+            }
+
+            $y -= 6 if $raw_line =~ /^\s*$/;
+        }
     }
 
     $pdf->saveas($to);
     return 1;
+}
+
+sub _new_pdf_page {
+    my ($pdf) = @_;
+    my $page = $pdf->page;
+    $page->mediabox('A4');
+    my $text = $page->text;
+    my $gfx  = $page->gfx;
+    my $y    = 792 - 50;
+    return ( $page, $text, $gfx, $y );
+}
+
+sub _pdf_lines_for_block {
+    my ($block) = @_;
+    return ( '#' x $block->{level} . ' ' . $block->{text} ) if $block->{type} eq 'heading';
+    return ( '* ' . $block->{text} ) if $block->{type} eq 'bullet';
+    return ( 'Quote: ' . $block->{text} ) if $block->{type} eq 'blockquote';
+    return @{ $block->{lines} } if $block->{type} eq 'code';
+    return ( $block->{text} ) if $block->{type} eq 'paragraph';
+    return ('') if $block->{type} eq 'blank';
+    return;
+}
+
+sub _render_pdf_table {
+    my (%args) = @_;
+    my $pdf          = $args{pdf};
+    my $page         = $args{page};
+    my $text         = $args{text};
+    my $gfx          = $args{gfx};
+    my $y            = $args{y};
+    my $rows         = $args{rows} || [];
+    my $x            = $args{x};
+    my $width        = $args{width};
+    my $font_regular = $args{font_regular};
+    my $font_bold    = $args{font_bold};
+    my $padding      = 6;
+    my $size         = 11;
+    my $leading      = 14;
+    my $columns      = scalar @{ $rows->[0] || [] } || 1;
+    my $cell_width   = $width / $columns;
+
+    for my $row_index ( 0 .. $#$rows ) {
+        my $row  = $rows->[$row_index];
+        my $font = $row_index == 0 ? $font_bold : $font_regular;
+        my @cell_lines;
+        my $max_lines = 1;
+
+        for my $cell (@{$row}) {
+            my $plain_cell = Markdown::Enhancer->_plain_inline($cell);
+            my @wrapped = _wrap_text( $font, $size, $plain_cell, $cell_width - ( $padding * 2 ) );
+            @wrapped = ('') if !@wrapped;
+            push @cell_lines, \@wrapped;
+            $max_lines = @wrapped if @wrapped > $max_lines;
+        }
+
+        my $row_height = ( $max_lines * $leading ) + ( $padding * 2 );
+        if ( $y - $row_height < 50 ) {
+            ( $page, $text, $gfx, $y ) = _new_pdf_page($pdf);
+        }
+
+        for my $col_index ( 0 .. $#$row ) {
+            my $cell_x = $x + ( $col_index * $cell_width );
+            $gfx->rect( $cell_x, $y - $row_height, $cell_width, $row_height );
+            $gfx->stroke;
+            my $line_y = $y - $padding - $size;
+            for my $segment ( @{ $cell_lines[$col_index] } ) {
+                $text->font( $font, $size );
+                $text->translate( $cell_x + $padding, $line_y );
+                $text->text($segment);
+                $line_y -= $leading;
+            }
+        }
+
+        $y -= $row_height;
+    }
+
+    $y -= 8;
+    return ( $page, $text, $gfx, $y );
 }
 
 sub _wrap_text {

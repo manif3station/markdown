@@ -25,6 +25,8 @@ The skill also adds a local `Markdown::Enhancer` layer above those modules. That
 - fenced code blocks
 - blockquotes
 
+For pdf output, the skill also draws markdown tables as table cells with borders instead of flattening the rows into one plain text stream.
+
 The preferred interface is positional:
 
 - `dashboard markdown.convert source.md target.pdf`
