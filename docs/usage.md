@@ -49,6 +49,17 @@ The compact shorthand is:
 dashboard markdown.convert notes.md notes.pdf -A 3 --landscape
 ```
 
+The expanded paper-size families are also supported:
+
+```bash
+dashboard markdown.convert notes.md notes.pdf --paper ANSI-D
+dashboard markdown.convert notes.md notes.pdf --paper DL
+dashboard markdown.convert notes.md notes.pdf --paper B5
+dashboard markdown.convert notes.md notes.pdf --paper C7
+dashboard markdown.convert notes.md notes.pdf -A 0
+dashboard markdown.convert notes.md notes.pdf -A 10
+```
+
 That path is proven against the real generated PDF page box. The generated file reports `1191 x 842 pts (A3)` in `pdfinfo`.
 
 Markdown to html:
@@ -102,7 +113,8 @@ dashboard markdown.convert --from notes.md --html --to notes.html
 ## PDF Layout Controls
 
 - `--paper` accepts `A1`, `A2`, `A3`, and `A4`
-- `-A 1|2|3|4` is shorthand for `--paper A1|A2|A3|A4`
+- `--paper` accepts ISO `A0` through `A10`, `B0` through `B10`, `C0` through `C7`, `DL`, and `ANSI-A` through `ANSI-E`
+- `-A 0|1|2|3|4|5|6|7|8|9|10` is shorthand for `--paper A0|A1|A2|A3|A4|A5|A6|A7|A8|A9|A10`
 - `--portrait` is the default orientation
 - `--landscape` switches the generated pdf to landscape mode
 - `--paper`, `--landscape`, and `--portrait` are only valid when the target output is pdf

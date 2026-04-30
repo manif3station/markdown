@@ -133,6 +133,76 @@ use Markdown::Runner;
     print {$fh} "# hello\n";
     close $fh or die "Unable to close $from: $!";
 
+    my $seen;
+    my $stdout = '';
+    open my $out, '>', \$stdout or die "Unable to open stdout scalar: $!";
+    local *STDOUT = $out;
+
+    my $exit = Markdown::CLI::main(
+        argv   => [ $from, File::Spec->catfile( $tmp, 'note.pdf' ), '-A', '0' ],
+        runner => Markdown::Runner->new(
+            markdown_to_html => sub { return "<html><body># hello</body></html>\n" },
+            markdown_to_pdf  => sub {
+                my ( $markdown, $to, $layout ) = @_;
+                $seen = $layout;
+                open my $pdf, '>', $to or die "Unable to write $to: $!";
+                print {$pdf} "PDF\n$markdown";
+                close $pdf or die "Unable to close $to: $!";
+                return 1;
+            },
+            html_to_markdown => sub { return "# hello\n" },
+            pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+            logger           => sub { },
+        ),
+    );
+
+    is( $exit, 0, 'pdf flow accepts the -A 0 shorthand' );
+    is( $seen->{paper}, 'A0', 'A shorthand maps the requested paper size to A0' );
+    like( $stdout, qr/"paper":"A0"/, 'pdf json result includes the normalized shorthand paper size for A0' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $seen;
+    my $stdout = '';
+    open my $out, '>', \$stdout or die "Unable to open stdout scalar: $!";
+    local *STDOUT = $out;
+
+    my $exit = Markdown::CLI::main(
+        argv   => [ $from, File::Spec->catfile( $tmp, 'note.pdf' ), '--paper', 'ANSI-D' ],
+        runner => Markdown::Runner->new(
+            markdown_to_html => sub { return "<html><body># hello</body></html>\n" },
+            markdown_to_pdf  => sub {
+                my ( $markdown, $to, $layout ) = @_;
+                $seen = $layout;
+                open my $pdf, '>', $to or die "Unable to write $to: $!";
+                print {$pdf} "PDF\n$markdown";
+                close $pdf or die "Unable to close $to: $!";
+                return 1;
+            },
+            html_to_markdown => sub { return "# hello\n" },
+            pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+            logger           => sub { },
+        ),
+    );
+
+    is( $exit, 0, 'pdf flow accepts ANSI paper sizes' );
+    is( $seen->{paper}, 'ANSI-D', 'ANSI paper size is passed to the runner' );
+    like( $stdout, qr/"paper":"ANSI-D"/, 'pdf json result includes the ANSI paper size' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
     my $stdout = '';
     my $stderr = '';
     open my $out, '>', \$stdout or die "Unable to open stdout scalar: $!";

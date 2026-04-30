@@ -82,6 +82,68 @@ my $runner = Markdown::Runner->new(
 
 {
     my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    my $seen;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $layout_runner = Markdown::Runner->new(
+        markdown_to_html => sub { return "<html><body>$_[0]</body></html>\n" },
+        markdown_to_pdf  => sub {
+            my ( $markdown, $to, $layout ) = @_;
+            $seen = $layout;
+            open my $pdf, '>', $to or die "Unable to write $to: $!";
+            print {$pdf} "PDF\n$markdown";
+            close $pdf or die "Unable to close $to: $!";
+            return 1;
+        },
+        html_to_markdown => sub { my ($html) = @_; $html =~ s/<[^>]+>//g; return $html; },
+        pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+    );
+
+    my $result = $layout_runner->convert(
+        from  => $from,
+        to    => File::Spec->catfile( $tmp, 'layout.pdf' ),
+        paper => 'ansi-c',
+    );
+    is( $result->{paper}, 'ANSI-C', 'runner normalizes ANSI paper size into the json result' );
+    is( $seen->{paper}, 'ANSI-C', 'runner passes normalized ANSI paper size to the pdf renderer' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    my $seen;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";    
+
+    my $layout_runner = Markdown::Runner->new(
+        markdown_to_html => sub { return "<html><body>$_[0]</body></html>\n" },
+        markdown_to_pdf  => sub {
+            my ( $markdown, $to, $layout ) = @_;
+            $seen = $layout;
+            open my $pdf, '>', $to or die "Unable to write $to: $!";
+            print {$pdf} "PDF\n$markdown";
+            close $pdf or die "Unable to close $to: $!";
+            return 1;
+        },
+        html_to_markdown => sub { my ($html) = @_; $html =~ s/<[^>]+>//g; return $html; },
+        pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+    );
+
+    my $result = $layout_runner->convert(
+        from  => $from,
+        to    => File::Spec->catfile( $tmp, 'layout.pdf' ),
+        paper => 'dl',
+    );
+    is( $result->{paper}, 'DL', 'runner normalizes DL paper size into the json result' );
+    is( $seen->{paper}, 'DL', 'runner passes normalized DL paper size to the pdf renderer' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
     my $from = File::Spec->catfile( $tmp, 'page.html' );
     open my $fh, '>', $from or die "Unable to write $from: $!";
     print {$fh} "<h1>hello</h1>\n";
@@ -147,9 +209,9 @@ my $runner = Markdown::Runner->new(
     print {$fh} "# hello\n";
     close $fh or die "Unable to close $from: $!";
 
-    my $error = eval { $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'note.pdf' ), paper => 'A9' ); 1 };
+    my $error = eval { $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'note.pdf' ), paper => 'A11' ); 1 };
     ok( !$error, 'unsupported paper sizes are rejected' );
-    like( $@, qr/^Unsupported paper size: A9/, 'unsupported paper size is reported clearly' );
+    like( $@, qr/^Unsupported paper size: A11/, 'unsupported paper size is reported clearly' );
 }
 
 {
@@ -471,6 +533,21 @@ MARKDOWN
         ),
         'rebalance_extension_fragment returns undef when no readable rebalance fits'
     );
+}
+
+is_deeply( [ Markdown::Runner::_paper_dimensions('A0') ], [ 2384, 3370 ], 'A0 paper dimensions are supported' );
+is_deeply( [ Markdown::Runner::_paper_dimensions('A10') ], [ 74, 105 ], 'A10 paper dimensions are supported' );
+is_deeply( [ Markdown::Runner::_paper_dimensions('B0') ], [ 2835, 4008 ], 'B0 paper dimensions are supported' );
+is_deeply( [ Markdown::Runner::_paper_dimensions('B10') ], [ 88, 125 ], 'B10 paper dimensions are supported' );
+is_deeply( [ Markdown::Runner::_paper_dimensions('C0') ], [ 2599, 3677 ], 'C0 paper dimensions are supported' );
+is_deeply( [ Markdown::Runner::_paper_dimensions('C7') ], [ 230, 323 ], 'C7 paper dimensions are supported' );
+is_deeply( [ Markdown::Runner::_paper_dimensions('DL') ], [ 312, 624 ], 'DL paper dimensions are supported' );
+is_deeply( [ Markdown::Runner::_paper_dimensions('ANSI-A') ], [ 612, 792 ], 'ANSI-A paper dimensions are supported' );
+is_deeply( [ Markdown::Runner::_paper_dimensions('ANSI-E') ], [ 2448, 3168 ], 'ANSI-E paper dimensions are supported' );
+
+for my $paper ( map( { "A$_" } 0 .. 10 ), map( { "B$_" } 0 .. 10 ), map( { "C$_" } 0 .. 7 ), 'DL', map( { "ANSI-$_" } qw(A B C D E) ) ) {
+    my $ok = eval { Markdown::Runner::_validate_pdf_layout( paper => $paper ); 1 };
+    ok( $ok, "$paper is accepted as a supported paper size" ) or diag $@;
 }
 
 {

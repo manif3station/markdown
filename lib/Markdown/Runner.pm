@@ -447,8 +447,14 @@ sub _render_pdf_table {
 
 sub _validate_pdf_layout {
     my (%args) = @_;
-    my $paper = uc( $args{paper} || 'A4' );
-    my %valid = map { $_ => 1 } qw(A1 A2 A3 A4);
+    my $paper = _normalize_paper_name( $args{paper} || 'A4' );
+    my %valid = map { $_ => 1 } qw(
+      A0 A1 A2 A3 A4 A5 A6 A7 A8 A9 A10
+      B0 B1 B2 B3 B4 B5 B6 B7 B8 B9 B10
+      C0 C1 C2 C3 C4 C5 C6 C7
+      DL
+      ANSI-A ANSI-B ANSI-C ANSI-D ANSI-E
+    );
     die "Unsupported paper size: $paper\n" if !$valid{$paper};
     die "Choose only one of --landscape or --portrait\n" if ( $args{landscape} && $args{portrait} );
     my $orientation = $args{landscape} ? 'landscape' : 'portrait';
@@ -460,15 +466,56 @@ sub _validate_pdf_layout {
 
 sub _paper_dimensions {
     my ($paper) = @_;
-    $paper = 'A4' if !defined $paper || $paper eq '';
+    $paper = _normalize_paper_name( $paper || 'A4' );
     my %size = (
+        A0 => [ 2384, 3370 ],
         A1 => [ 1684, 2384 ],
         A2 => [ 1191, 1684 ],
         A3 => [ 842, 1191 ],
         A4 => [ 595, 842 ],
+        A5 => [ 420, 595 ],
+        A6 => [ 298, 420 ],
+        A7 => [ 210, 298 ],
+        A8 => [ 147, 210 ],
+        A9 => [ 105, 147 ],
+        A10 => [ 74, 105 ],
+        B0 => [ 2835, 4008 ],
+        B1 => [ 2004, 2835 ],
+        B2 => [ 1417, 2004 ],
+        B3 => [ 1001, 1417 ],
+        B4 => [ 709, 1001 ],
+        B5 => [ 499, 709 ],
+        B6 => [ 354, 499 ],
+        B7 => [ 249, 354 ],
+        B8 => [ 176, 249 ],
+        B9 => [ 125, 176 ],
+        B10 => [ 88, 125 ],
+        C0 => [ 2599, 3677 ],
+        C1 => [ 1837, 2599 ],
+        C2 => [ 1298, 1837 ],
+        C3 => [ 918, 1298 ],
+        C4 => [ 649, 918 ],
+        C5 => [ 459, 649 ],
+        C6 => [ 323, 459 ],
+        C7 => [ 230, 323 ],
+        DL => [ 312, 624 ],
+        'ANSI-A' => [ 612, 792 ],
+        'ANSI-B' => [ 792, 1224 ],
+        'ANSI-C' => [ 1224, 1584 ],
+        'ANSI-D' => [ 1584, 2448 ],
+        'ANSI-E' => [ 2448, 3168 ],
     );
     my $dims = $size{$paper} || die "Unsupported paper size: $paper\n";
     return @{$dims};
+}
+
+sub _normalize_paper_name {
+    my ($paper) = @_;
+    $paper = uc( $paper || '' );
+    $paper =~ s/\s+//g;
+    $paper =~ s/_/-/g;
+    $paper = "ANSI-$1" if $paper =~ /^ANSI-?([A-E])$/;
+    return $paper;
 }
 
 sub _wrap_text {

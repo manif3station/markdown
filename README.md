@@ -89,6 +89,15 @@ dashboard markdown.convert notes.md notes.pdf -A 3 --landscape
 
 That route is now proven against the real generated PDF page box, not just the command JSON output.
 
+Use a non-A paper family when needed:
+
+```bash
+dashboard markdown.convert notes.md notes.pdf --paper ANSI-D
+dashboard markdown.convert notes.md notes.pdf --paper DL
+dashboard markdown.convert notes.md notes.pdf --paper B5
+dashboard markdown.convert notes.md notes.pdf --paper C7
+```
+
 Convert markdown to html with a positional target:
 
 ```bash
@@ -148,6 +157,10 @@ Use `-A 1`, `2`, `3`, or `4` as the compact shorthand for `--paper A1`, `A2`, `A
 ```
 
 ```text
+Use `--paper` with ISO `A0` through `A10`, `B0` through `B10`, `C0` through `C7`, `DL`, or `ANSI-A` through `ANSI-E` when the output needs a specific print or envelope size.
+```
+
+```text
 Use `--landscape` for wider tables. The default orientation is portrait.
 ```
 
@@ -203,3 +216,4 @@ Progress logs are printed to stderr during conversion so long-running pdf and ht
 - `docs/changes/2026-04-30-all-perl-conversion-stack.md`
 - `docs/changes/2026-04-30-markdown-enhancer-rendering-fix.md`
 - `docs/changes/2026-04-30-pdf-table-cell-wrapping-fix.md`
+- `docs/changes/2026-04-30-expanded-paper-size-support.md`

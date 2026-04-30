@@ -1,5 +1,10 @@
 Revision history for markdown
 
+0.11 2026-04-30
+    - added ISO paper sizes `A0` through `A10`, `B0` through `B10`, and `C0` through `C7`
+    - added `DL` and `ANSI-A` through `ANSI-E` paper sizes for markdown-to-pdf output
+    - extended `-A` shorthand support to `0` through `10`
+
 0.10 2026-04-30
     - fixed real PDF table-cell wrapping so long values stay inside their own cells
     - made PDF table rows grow vertically to fit wrapped filename, path, and action text

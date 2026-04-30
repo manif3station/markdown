@@ -40,8 +40,12 @@ The skill also emits verbose progress to `stderr` so callers can see each step d
 
 For PDF output, the skill supports:
 
-- paper sizes `A1`, `A2`, `A3`, and `A4`
-- shorthand paper selection with `-A 1|2|3|4`
+- ISO paper sizes `A0` through `A10`
+- ISO paper sizes `B0` through `B10`
+- ISO paper sizes `C0` through `C7`
+- `DL`
+- `ANSI-A` through `ANSI-E`
+- shorthand paper selection with `-A 0|1|2|3|4|5|6|7|8|9|10`
 - `--landscape`
 - `--portrait`
 

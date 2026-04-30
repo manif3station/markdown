@@ -95,12 +95,15 @@ sub main {
 sub _usage {
     return <<'USAGE';
 Usage: dashboard markdown.convert <source> [target]
-       dashboard markdown.convert --from <source> [--to <target>] [--to-pdf|--pdf|--to-html|--html] [--paper A4|-A 4] [--landscape|--portrait]
+       dashboard markdown.convert --from <source> [--to <target>] [--to-pdf|--pdf|--to-html|--html] [--paper A4|B5|C7|DL|ANSI-D|-A 4] [--landscape|--portrait]
 
 Examples:
   dashboard markdown.convert notes.md notes.pdf
   dashboard markdown.convert notes.md notes.pdf --paper A3 --landscape
+  dashboard markdown.convert notes.md notes.pdf --paper ANSI-D
+  dashboard markdown.convert notes.md notes.pdf --paper DL
   dashboard markdown.convert notes.md notes.pdf -A 3 --landscape
+  dashboard markdown.convert notes.md notes.pdf -A 0
   dashboard markdown.convert notes.md notes.html
   dashboard markdown.convert notes.html
   dashboard markdown.convert scan.pdf
