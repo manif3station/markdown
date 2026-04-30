@@ -37,6 +37,18 @@ Markdown to pdf:
 dashboard markdown.convert notes.md notes.pdf
 ```
 
+Markdown to pdf on A3 landscape paper:
+
+```bash
+dashboard markdown.convert notes.md notes.pdf --paper A3 --landscape
+```
+
+The compact shorthand is:
+
+```bash
+dashboard markdown.convert notes.md notes.pdf -A 3 --landscape
+```
+
 Markdown to html:
 
 ```bash
@@ -48,6 +60,8 @@ Markdown with a table and inline code to html:
 ```bash
 dashboard markdown.convert report.md report.html
 ```
+
+That html table output now emits `<table border="1">`.
 
 Markdown with a table and inline code to pdf:
 
@@ -81,6 +95,15 @@ dashboard markdown.convert --from notes.md --html --to notes.html
 - when `--to` is present without the final output suffix, the skill appends the right one
 - markdown input requires a target filename ending in `.pdf` or `.html`, or the legacy `--pdf`/`--html` flags
 - html and pdf input default to markdown output
+
+## PDF Layout Controls
+
+- `--paper` accepts `A1`, `A2`, `A3`, and `A4`
+- `-A 1|2|3|4` is shorthand for `--paper A1|A2|A3|A4`
+- `--portrait` is the default orientation
+- `--landscape` switches the generated pdf to landscape mode
+- `--paper`, `--landscape`, and `--portrait` are only valid when the target output is pdf
+- only one paper-size selector may be used at a time
 
 ## Progress Output
 

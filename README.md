@@ -25,6 +25,7 @@ This skill adds a CLI converter that:
 - reuses the source basename when the caller does not provide an explicit output path
 - appends the right output extension when `--to` omits it
 - infers the conversion route from positional file arguments and file extensions
+- lets the caller choose PDF paper size with `--paper` and orientation with `--landscape` or `--portrait`
 - prints step-by-step progress to `stderr` while it works
 
 ## Developer Dashboard Feature Added
@@ -73,6 +74,18 @@ Convert markdown to pdf with a positional target:
 dashboard markdown.convert notes.md notes.pdf
 ```
 
+Convert markdown to pdf on A3 landscape paper:
+
+```bash
+dashboard markdown.convert notes.md notes.pdf --paper A3 --landscape
+```
+
+The shorthand form is also supported:
+
+```bash
+dashboard markdown.convert notes.md notes.pdf -A 3 --landscape
+```
+
 Convert markdown to html with a positional target:
 
 ```bash
@@ -86,6 +99,7 @@ dashboard markdown.convert report.md report.html
 ```
 
 The resulting html now renders markdown table rows as a real `<table>` and inline code like `` `token` `` as `<code>token</code>`.
+The generated markdown table html now emits `<table border="1">`.
 
 Convert the same markdown to pdf:
 
@@ -122,6 +136,18 @@ Use a target path ending in `.pdf` when markdown should become a shareable pdf.
 ```
 
 ```text
+Use `--paper A1`, `A2`, `A3`, or `A4` with pdf output when the document needs a larger or smaller page size.
+```
+
+```text
+Use `-A 1`, `2`, `3`, or `4` as the compact shorthand for `--paper A1`, `A2`, `A3`, or `A4`.
+```
+
+```text
+Use `--landscape` for wider tables. The default orientation is portrait.
+```
+
+```text
 Use a target path ending in `.html` when markdown should become a browser-friendly html file.
 ```
 
@@ -141,6 +167,14 @@ If markdown is the source and the caller does not provide a target path ending i
 
 ```text
 If html or pdf is the source, only markdown output is supported.
+```
+
+```text
+If `--paper`, `--landscape`, or `--portrait` are used on a non-pdf route, the skill exits non-zero and explains that those flags are only valid for PDF output.
+```
+
+```text
+If the caller provides more than one paper-size selector, such as `--paper A4 -A 3`, the skill exits non-zero and asks for a single paper-size choice.
 ```
 
 ```text

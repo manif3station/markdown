@@ -205,7 +205,7 @@ sub _table_to_html {
     my ( $self, $rows ) = @_;
     my $header = shift @{$rows};
     my @parts;
-    push @parts, '<table>';
+    push @parts, '<table border="1">';
     push @parts, '<thead><tr>' . join( '', map { '<th>' . $self->_render_inline_html($_) . '</th>' } @{$header} ) . '</tr></thead>';
     push @parts, '<tbody>';
     for my $row ( @{$rows} ) {

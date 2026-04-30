@@ -30,8 +30,18 @@ For pdf output, the skill also draws markdown tables as table cells with borders
 The preferred interface is positional:
 
 - `dashboard markdown.convert source.md target.pdf`
+- `dashboard markdown.convert source.md target.pdf --paper A3 --landscape`
 - `dashboard markdown.convert source.md target.html`
 - `dashboard markdown.convert source.html`
 - `dashboard markdown.convert source.pdf`
 
 The skill also emits verbose progress to `stderr` so callers can see each step during long-running conversions.
+
+For PDF output, the skill supports:
+
+- paper sizes `A1`, `A2`, `A3`, and `A4`
+- shorthand paper selection with `-A 1|2|3|4`
+- `--landscape`
+- `--portrait`
+
+Portrait is the default orientation.

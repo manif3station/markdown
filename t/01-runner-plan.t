@@ -48,6 +48,40 @@ my $runner = Markdown::Runner->new(
 
 {
     my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    my $seen;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $layout_runner = Markdown::Runner->new(
+        markdown_to_html => sub { return "<html><body>$_[0]</body></html>\n" },
+        markdown_to_pdf  => sub {
+            my ( $markdown, $to, $layout ) = @_;
+            $seen = $layout;
+            open my $pdf, '>', $to or die "Unable to write $to: $!";
+            print {$pdf} "PDF\n$markdown";
+            close $pdf or die "Unable to close $to: $!";
+            return 1;
+        },
+        html_to_markdown => sub { my ($html) = @_; $html =~ s/<[^>]+>//g; return $html; },
+        pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+    );
+
+    my $result = $layout_runner->convert(
+        from      => $from,
+        to        => File::Spec->catfile( $tmp, 'layout.pdf' ),
+        paper     => 'a3',
+        landscape => 1,
+    );
+    is( $result->{paper}, 'A3', 'runner normalizes paper size into the json result' );
+    is( $result->{orientation}, 'landscape', 'runner reports landscape orientation in the json result' );
+    is( $seen->{paper}, 'A3', 'runner passes normalized paper size to the pdf renderer' );
+    is( $seen->{orientation}, 'landscape', 'runner passes normalized orientation to the pdf renderer' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
     my $from = File::Spec->catfile( $tmp, 'page.html' );
     open my $fh, '>', $from or die "Unable to write $from: $!";
     print {$fh} "<h1>hello</h1>\n";
@@ -92,6 +126,42 @@ my $runner = Markdown::Runner->new(
     my $error = eval { $runner->convert( from => $from, to_pdf => 1, to_html => 1 ); 1 };
     ok( !$error, 'conflicting markdown target flags are rejected' );
     like( $@, qr/^Choose only one/, 'conflicting target flags explain the conflict' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $error = eval { $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'note.pdf' ), landscape => 1, portrait => 1 ); 1 };
+    ok( !$error, 'conflicting pdf orientation flags are rejected' );
+    like( $@, qr/^Choose only one of --landscape or --portrait/, 'orientation conflict is reported clearly' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $error = eval { $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'note.pdf' ), paper => 'A9' ); 1 };
+    ok( !$error, 'unsupported paper sizes are rejected' );
+    like( $@, qr/^Unsupported paper size: A9/, 'unsupported paper size is reported clearly' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $error = eval { $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'note.html' ), paper => 'A3' ); 1 };
+    ok( !$error, 'paper flags are rejected on non-pdf output routes' );
+    like( $@, qr/^PDF layout flags are only valid for PDF output/, 'paper flag rejection is explicit on non-pdf output' );
 }
 
 {
@@ -223,7 +293,7 @@ MARKDOWN
     open my $out, '<', $to or die "Unable to read $to: $!";
     my $html = do { local $/; <$out> };
     close $out or die "Unable to close $to: $!";
-    like( $html, qr/<table>/, 'default markdown to html renders markdown tables as html tables' );
+    like( $html, qr/<table\b[^>]*border="1"[^>]*>/, 'default markdown to html renders markdown tables as html tables with border=1' );
     unlike( $html, qr/\|\s*Name\s*\|/, 'default markdown to html does not leave raw pipe-table syntax behind' );
     like( $html, qr/<code>alpha<\/code>/, 'default markdown to html renders inline code without backticks' );
 }

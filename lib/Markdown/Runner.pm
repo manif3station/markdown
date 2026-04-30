@@ -33,6 +33,9 @@ sub convert {
         to            => $args{to},
         to_pdf        => $args{to_pdf},
         to_html       => $args{to_html},
+        paper         => $args{paper},
+        landscape     => $args{landscape},
+        portrait      => $args{portrait},
     );
     my $output_path = $self->_output_path(
         from          => $from,
@@ -44,12 +47,29 @@ sub convert {
     $self->_log("source_format=$source_format");
     $self->_log("target_format=$target_format");
     $self->_log("output=$output_path");
+    if ( $target_format eq 'pdf' ) {
+        my $layout = $self->_pdf_layout(
+            paper     => $args{paper},
+            landscape => $args{landscape},
+            portrait  => $args{portrait},
+        );
+        $self->_log( 'paper=' . $layout->{paper} );
+        $self->_log( 'orientation=' . $layout->{orientation} );
+    }
 
     if ( $source_format eq 'markdown' && $target_format eq 'html' ) {
         $self->_markdown_to_html( $from, $output_path );
     }
     elsif ( $source_format eq 'markdown' && $target_format eq 'pdf' ) {
-        $self->_markdown_to_pdf( $from, $output_path );
+        $self->_markdown_to_pdf(
+            $from,
+            $output_path,
+            $self->_pdf_layout(
+                paper     => $args{paper},
+                landscape => $args{landscape},
+                portrait  => $args{portrait},
+            )
+        );
     }
     elsif ( $source_format eq 'html' && $target_format eq 'markdown' ) {
         $self->_html_to_markdown( $from, $output_path );
@@ -66,6 +86,20 @@ sub convert {
         to            => $output_path,
         source_format => $source_format,
         target_format => $target_format,
+        ( $target_format eq 'pdf'
+            ? (
+                paper       => $self->_pdf_layout(
+                    paper     => $args{paper},
+                    landscape => $args{landscape},
+                    portrait  => $args{portrait},
+                )->{paper},
+                orientation => $self->_pdf_layout(
+                    paper     => $args{paper},
+                    landscape => $args{landscape},
+                    portrait  => $args{portrait},
+                )->{orientation},
+              )
+            : () ),
     };
 }
 
@@ -85,23 +119,40 @@ sub _target_format_for {
     my $to            = $args{to};
     my $to_pdf        = $args{to_pdf}  ? 1 : 0;
     my $to_html       = $args{to_html} ? 1 : 0;
+    my $paper         = $args{paper};
+    my $landscape     = $args{landscape} ? 1 : 0;
+    my $portrait      = $args{portrait}  ? 1 : 0;
 
     die "Choose only one of --pdf/--to-pdf or --html/--to-html\n" if $to_pdf && $to_html;
+    die "Choose only one of --landscape or --portrait\n" if $landscape && $portrait;
 
     if ( $source_format eq 'markdown' ) {
+        if ( !$to_pdf && !$to_html && defined $to && $to ne '' ) {
+            my $ext = lc( ( fileparse( $to, qr/\.[^.]*/ ) )[2] || '' );
+            if ( $ext eq '.pdf' ) {
+                _validate_pdf_layout( paper => $paper, landscape => $landscape, portrait => $portrait );
+            }
+        }
         return 'pdf'  if $to_pdf;
         return 'html' if $to_html;
         if ( defined $to && $to ne '' ) {
             my $ext = lc( ( fileparse( $to, qr/\.[^.]*/ ) )[2] || '' );
+            _validate_pdf_layout( paper => $paper, landscape => $landscape, portrait => $portrait ) if $ext eq '.pdf';
+            die "PDF layout flags are only valid for PDF output\n"
+              if ( ( defined $paper && $paper ne '' ) || $landscape || $portrait ) && $ext ne '.pdf';
             return 'pdf'  if $ext eq '.pdf';
             return 'html' if $ext eq '.html' || $ext eq '.htm';
             die "Markdown source needs --pdf/--to-pdf, --html/--to-html, or a .pdf/.html output path\n";
         }
+        die "PDF layout flags are only valid for PDF output\n"
+          if ( defined $paper && $paper ne '' ) || $landscape || $portrait;
         die "Markdown source needs a target format\n";
     }
 
     die "HTML source can only convert to markdown\n" if $source_format eq 'html' && ( $to_pdf || $to_html );
     die "PDF source can only convert to markdown\n"  if $source_format eq 'pdf'  && ( $to_pdf || $to_html );
+    die "PDF layout flags are only valid for PDF output\n"
+      if ( defined $paper && $paper ne '' ) || $landscape || $portrait;
 
     if ( defined $to && $to ne '' ) {
         my $ext = lc( ( fileparse( $to, qr/\.[^.]*/ ) )[2] || '' );
@@ -161,11 +212,16 @@ sub _html_to_markdown {
 }
 
 sub _markdown_to_pdf {
-    my ( $self, $from, $to ) = @_;
+    my ( $self, $from, $to, $layout ) = @_;
     my $markdown = $self->_read_text($from);
     $self->_log("step=markdown_to_pdf.perl");
-    $self->{markdown_to_pdf}->( $markdown, $to );
+    $self->{markdown_to_pdf}->( $markdown, $to, $layout );
     return 1;
+}
+
+sub _pdf_layout {
+    my ( $self, %args ) = @_;
+    return _validate_pdf_layout(%args);
 }
 
 sub _pdf_to_markdown {
@@ -213,20 +269,21 @@ sub _default_html_to_markdown {
 }
 
 sub _default_markdown_to_pdf {
-    my ( $markdown, $to, $enhancer ) = @_;
+    my ( $markdown, $to, $layout, $enhancer ) = @_;
     require PDF::API2;
     $enhancer ||= Markdown::Enhancer->new;
+    $layout ||= _validate_pdf_layout();
 
     my $pdf = PDF::API2->new;
     my $font_regular = $pdf->corefont( 'Helvetica',      -encoding => 'utf8' );
     my $font_bold    = $pdf->corefont( 'Helvetica-Bold', -encoding => 'utf8' );
     my $x = 50;
-    my $width = 595 - 100;
-    my ( $page, $text, $gfx, $y ) = _new_pdf_page($pdf);
+    my ( $page, $text, $gfx, $y, $page_width, $page_height ) = _new_pdf_page( $pdf, $layout );
+    my $width = $page_width - 100;
 
     for my $block ( @{ $enhancer->parse_blocks($markdown) } ) {
         if ( $block->{type} eq 'table' ) {
-            ( $page, $text, $gfx, $y ) = _render_pdf_table(
+            ( $page, $text, $gfx, $y, $page_width, $page_height ) = _render_pdf_table(
                 pdf          => $pdf,
                 page         => $page,
                 text         => $text,
@@ -237,7 +294,9 @@ sub _default_markdown_to_pdf {
                 width        => $width,
                 font_regular => $font_regular,
                 font_bold    => $font_bold,
+                layout       => $layout,
             );
+            $width = $page_width - 100;
             next;
         }
 
@@ -272,7 +331,8 @@ sub _default_markdown_to_pdf {
 
             for my $segment (@wrapped) {
                 if ( $y < 50 ) {
-                    ( $page, $text, $gfx, $y ) = _new_pdf_page($pdf);
+                    ( $page, $text, $gfx, $y, $page_width, $page_height ) = _new_pdf_page( $pdf, $layout );
+                    $width = $page_width - 100;
                 }
                 $text->font( $font, $size );
                 $text->translate( $x, $y );
@@ -289,13 +349,18 @@ sub _default_markdown_to_pdf {
 }
 
 sub _new_pdf_page {
-    my ($pdf) = @_;
+    my ( $pdf, $layout ) = @_;
+    $layout ||= _validate_pdf_layout();
+    $layout->{paper}       ||= 'A4';
+    $layout->{orientation} ||= 'portrait';
+    my ( $width, $height ) = _paper_dimensions( $layout->{paper} );
+    ( $width, $height ) = ( $height, $width ) if $layout->{orientation} eq 'landscape';
     my $page = $pdf->page;
-    $page->mediabox('A4');
+    $page->mediabox( 0, 0, $width, $height );
     my $text = $page->text;
     my $gfx  = $page->gfx;
-    my $y    = 792 - 50;
-    return ( $page, $text, $gfx, $y );
+    my $y    = $height - 50;
+    return ( $page, $text, $gfx, $y, $width, $height );
 }
 
 sub _pdf_lines_for_block {
@@ -321,6 +386,9 @@ sub _render_pdf_table {
     my $width        = $args{width};
     my $font_regular = $args{font_regular};
     my $font_bold    = $args{font_bold};
+    my $layout       = $args{layout} || _validate_pdf_layout();
+    $layout->{paper}       ||= 'A4';
+    $layout->{orientation} ||= 'portrait';
     my $padding      = 6;
     my $size         = 11;
     my $leading      = 14;
@@ -343,7 +411,16 @@ sub _render_pdf_table {
 
         my $row_height = ( $max_lines * $leading ) + ( $padding * 2 );
         if ( $y - $row_height < 50 ) {
-            ( $page, $text, $gfx, $y ) = _new_pdf_page($pdf);
+            my ( $new_page, $new_text, $new_gfx, $new_y, $new_width, $new_height ) = _new_pdf_page( $pdf, $layout );
+            ( $page, $text, $gfx, $y ) = ( $new_page, $new_text, $new_gfx, $new_y );
+            if ( !defined $new_width ) {
+                my ( $fallback_width, $fallback_height ) = _paper_dimensions( $layout->{paper} );
+                ( $fallback_width, $fallback_height ) = ( $fallback_height, $fallback_width )
+                  if $layout->{orientation} eq 'landscape';
+                $new_width = $fallback_width;
+            }
+            $width      = $new_width - 100;
+            $cell_width = $width / $columns;
         }
 
         for my $col_index ( 0 .. $#$row ) {
@@ -363,7 +440,35 @@ sub _render_pdf_table {
     }
 
     $y -= 8;
-    return ( $page, $text, $gfx, $y );
+    my ( $page_width, $page_height ) = _paper_dimensions( $layout->{paper} );
+    ( $page_width, $page_height ) = ( $page_height, $page_width ) if $layout->{orientation} eq 'landscape';
+    return ( $page, $text, $gfx, $y, $page_width, $page_height );
+}
+
+sub _validate_pdf_layout {
+    my (%args) = @_;
+    my $paper = uc( $args{paper} || 'A4' );
+    my %valid = map { $_ => 1 } qw(A1 A2 A3 A4);
+    die "Unsupported paper size: $paper\n" if !$valid{$paper};
+    die "Choose only one of --landscape or --portrait\n" if ( $args{landscape} && $args{portrait} );
+    my $orientation = $args{landscape} ? 'landscape' : 'portrait';
+    return {
+        paper       => $paper,
+        orientation => $orientation,
+    };
+}
+
+sub _paper_dimensions {
+    my ($paper) = @_;
+    $paper = 'A4' if !defined $paper || $paper eq '';
+    my %size = (
+        A1 => [ 1684, 2384 ],
+        A2 => [ 1191, 1684 ],
+        A3 => [ 842, 1191 ],
+        A4 => [ 595, 842 ],
+    );
+    my $dims = $size{$paper} || die "Unsupported paper size: $paper\n";
+    return @{$dims};
 }
 
 sub _wrap_text {

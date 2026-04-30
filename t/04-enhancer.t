@@ -18,7 +18,7 @@ my $enhancer = Markdown::Enhancer->new;
 Use `gamma` here.
 MARKDOWN
 
-    like( $html, qr/<table>/, 'enhancer converts markdown tables into html table markup' );
+    like( $html, qr/<table\b[^>]*border="1"[^>]*>/, 'enhancer converts markdown tables into html table markup with border=1' );
     like( $html, qr/<code>alpha<\/code>/, 'enhancer renders inline code inside tables' );
     like( $html, qr/Use <code>gamma<\/code> here\./, 'enhancer renders inline code in regular text' );
     unlike( $html, qr/\|\s*Name\s*\|/, 'enhancer removes raw pipe syntax from html-preprocessed tables' );
