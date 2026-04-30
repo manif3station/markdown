@@ -49,6 +49,8 @@ The compact shorthand is:
 dashboard markdown.convert notes.md notes.pdf -A 3 --landscape
 ```
 
+That path is proven against the real generated PDF page box. The generated file reports `1191 x 842 pts (A3)` in `pdfinfo`.
+
 Markdown to html:
 
 ```bash

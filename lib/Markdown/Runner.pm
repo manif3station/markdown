@@ -13,7 +13,7 @@ sub new {
     my $enhancer = $args{enhancer} || Markdown::Enhancer->new;
     my $self = bless {
         markdown_to_html => $args{markdown_to_html} || sub { return _default_markdown_to_html( $_[0], $enhancer ); },
-        markdown_to_pdf  => $args{markdown_to_pdf}  || sub { return _default_markdown_to_pdf( $_[0], $_[1], $enhancer ); },
+        markdown_to_pdf  => $args{markdown_to_pdf}  || sub { return _default_markdown_to_pdf( $_[0], $_[1], $_[2], $enhancer ); },
         html_to_markdown => $args{html_to_markdown} || \&_default_html_to_markdown,
         pdf_to_markdown  => $args{pdf_to_markdown} || \&_default_pdf_to_markdown,
         logger           => $args{logger} || sub { },

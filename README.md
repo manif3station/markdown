@@ -86,6 +86,8 @@ The shorthand form is also supported:
 dashboard markdown.convert notes.md notes.pdf -A 3 --landscape
 ```
 
+That route is now proven against the real generated PDF page box, not just the command JSON output.
+
 Convert markdown to html with a positional target:
 
 ```bash

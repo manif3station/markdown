@@ -19,27 +19,27 @@ docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-tes
 - Functional test:
   - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && prove -lr t'`
   - Result: pass
-  - Test count: `Files=5, Tests=125`
+  - Test count: `Files=5, Tests=127`
 - Coverage test:
   - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t && cover -report text -select_re "^lib/" -coverage statement -coverage subroutine'`
   - Result: pass
   - Coverage: `100.0%` statement and `100.0%` subroutine for `lib/Markdown/CLI.pm`, `lib/Markdown/Enhancer.pm`, and `lib/Markdown/Runner.pm`
 - Installed DD proof:
   - `dashboard skills install ~/projects/skills/skills/markdown`
-  - Result: pass, updated installed skill from `0.06` to `0.07` during proof
+  - Result: pass, updated installed skill from `0.07` to `0.08` during proof
   - `dashboard markdown.convert /tmp/markdown-layout-proof.XXXXXX/report.md /tmp/markdown-layout-proof.XXXXXX/report.html`
   - Result: pass, generated html emitted `<table border="1">`
   - `dashboard markdown.convert /tmp/markdown-layout-proof.XXXXXX/report.md /tmp/markdown-layout-proof.XXXXXX/report.pdf -A 3 --landscape`
-  - Result: pass, json result reported `paper=A3` and `orientation=landscape`
+  - Result: pass, json result reported `paper=A3` and `orientation=landscape`, and `pdfinfo` reported `1191 x 842 pts (A3)`
   - `dashboard markdown.convert /tmp/markdown-layout-proof.XXXXXX/report.md /tmp/markdown-layout-proof.XXXXXX/bad.pdf --paper A4 -A 3`
   - Result: pass, command failed clearly with `Choose only one paper size selection`
 - macOS install and runtime proof:
   - `ssh macdev 'zsh -lic "dashboard skills install /tmp/markdown-mac-proof/markdown"'`
-  - Result: pass, updated installed skill from `0.06` to `0.07` during proof
+  - Result: pass, updated installed skill from `0.07` to `0.08` during proof
   - `ssh macdev 'zsh -lic "dashboard markdown.convert .../report.md .../report.html"'`
   - Result: pass, generated html emitted `<table border="1">`
   - `ssh macdev 'zsh -lic "dashboard markdown.convert .../report.md .../report.pdf -A 3 --landscape"'`
-  - Result: pass, json result reported `paper=A3` and `orientation=landscape`
+  - Result: pass, json result reported `paper=A3` and `orientation=landscape`, and `pdfinfo` reported `1191 x 842 pts (A3)`
   - `ssh macdev 'zsh -lic "dashboard markdown.convert .../report.md .../bad.pdf --paper A4 -A 3"'`
   - Result: pass, command failed clearly with `Choose only one paper size selection`
 - Cleanup:

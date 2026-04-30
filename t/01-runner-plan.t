@@ -380,6 +380,52 @@ MARKDOWN
 }
 
 {
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $to = File::Spec->catfile( $tmp, 'layout.pdf' );
+    my @mediabox_args;
+
+    no warnings 'redefine';
+    no warnings 'once';
+    my $pdf_obj = bless {}, 'PDF::API2';
+    my $page_obj = bless {}, 'PDF::API2::Page';
+    my $text_obj = bless {}, 'PDF::API2::Content';
+    my $gfx_obj = bless {}, 'PDF::API2::Content';
+    my $font_obj = bless {}, 'PDF::API2::Resource::Font::CoreFont';
+
+    local $INC{'PDF/API2.pm'} = __FILE__;
+    local *PDF::API2::new      = sub { return $pdf_obj };
+    local *PDF::API2::page     = sub { return $page_obj };
+    local *PDF::API2::corefont = sub { return $font_obj };
+    local *PDF::API2::saveas   = sub {
+        my ( $self, $path ) = @_;
+        open my $pdf, '>', $path or die "Unable to write $path: $!";
+        print {$pdf} "pdf";
+        close $pdf or die "Unable to close $path: $!";
+        return 1;
+    };
+    local *PDF::API2::Page::mediabox = sub { @mediabox_args = @_[ 1 .. $#_ ]; return 1 };
+    local *PDF::API2::Page::text     = sub { return $text_obj };
+    local *PDF::API2::Page::gfx      = sub { return $gfx_obj };
+    local *PDF::API2::Content::font      = sub { return 1 };
+    local *PDF::API2::Content::translate = sub { return 1 };
+    local *PDF::API2::Content::text      = sub { return 1 };
+    local *PDF::API2::Content::rect      = sub { return 1 };
+    local *PDF::API2::Content::stroke    = sub { return 1 };
+    local *PDF::API2::Resource::Font::CoreFont::width = sub { return length( $_[1] || '' ) * 500 };
+
+    my $default_runner = Markdown::Runner->new;
+    ok(
+        $default_runner->{markdown_to_pdf}->(
+            "# hello\n",
+            $to,
+            { paper => 'A3', orientation => 'landscape' }
+        ),
+        'default markdown to pdf path accepts explicit layout settings'
+    );
+    is_deeply( \@mediabox_args, [ 0, 0, 1191, 842 ], 'default markdown to pdf path sets the expected A3 landscape media box' );
+}
+
+{
     no warnings 'redefine';
     no warnings 'once';
     local $INC{'CAM/PDF.pm'} = __FILE__;

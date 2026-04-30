@@ -45,3 +45,5 @@ For PDF output, the skill supports:
 - `--portrait`
 
 Portrait is the default orientation.
+
+The layout settings are applied to the real generated PDF page size. Current proofs cover A3 landscape on Linux and macOS.

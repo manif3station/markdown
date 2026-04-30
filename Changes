@@ -1,5 +1,9 @@
 Revision history for markdown
 
+0.09 2026-04-30
+    - fixed the real default PDF renderer so selected paper size and orientation reach `PDF::API2`
+    - proved generated `-A 3 --landscape` PDFs use an A3 landscape media box on Linux and macOS
+
 0.08 2026-04-30
     - added `-A {1,2,3,4}` as shorthand for `--paper A1|A2|A3|A4`
     - reject duplicate paper-size selection when `--paper` and `-A` are both given
