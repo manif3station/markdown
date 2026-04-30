@@ -11,7 +11,12 @@ The current supported routes are:
 - html to markdown
 - pdf to markdown
 
-The skill uses `pandoc` as the main bridge, `wkhtmltopdf` or `weasyprint` for pdf generation, and `pdftohtml` when recovering markdown from pdf input.
+The skill uses Perl modules for every supported route:
+
+- `Markdown::Perl` for markdown to html
+- `HTML::WikiConverter` for html to markdown
+- `PDF::API2` for markdown to pdf
+- `CAM::PDF` for pdf to markdown
 
 The preferred interface is positional:
 
@@ -20,4 +25,4 @@ The preferred interface is positional:
 - `dashboard markdown.convert source.html`
 - `dashboard markdown.convert source.pdf`
 
-The skill also emits verbose progress to `stderr` so callers can see each step and command path during long-running conversions.
+The skill also emits verbose progress to `stderr` so callers can see each step during long-running conversions.

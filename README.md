@@ -2,7 +2,7 @@
 
 ## Description
 
-`markdown` is a Developer Dashboard skill that converts markdown, html, and pdf files between practical documentation formats.
+`markdown` is a Developer Dashboard skill that converts markdown, html, and pdf files between practical documentation formats with a Perl-only conversion stack.
 
 ## Value
 
@@ -20,6 +20,7 @@ This skill adds a CLI converter that:
 - turns markdown into pdf
 - turns html into markdown
 - turns pdf into markdown
+- uses Perl modules for all supported conversions instead of relying on host document-converter packages
 - reuses the source basename when the caller does not provide an explicit output path
 - appends the right output extension when `--to` omits it
 - infers the conversion route from positional file arguments and file extensions
@@ -47,17 +48,14 @@ dashboard skills install ~/projects/skills/skills/markdown
 
 ## Runtime Dependencies
 
-Ubuntu and Debian-family hosts:
+This skill now installs its conversion stack through `cpanfile`.
 
-```bash
-dashboard apt install pandoc poppler-utils wkhtmltopdf
-```
+The current Perl modules are:
 
-macOS hosts:
-
-```bash
-dashboard brew install pandoc poppler weasyprint
-```
+- `Markdown::Perl`
+- `HTML::WikiConverter`
+- `PDF::API2`
+- `CAM::PDF`
 
 ## How To Use It
 
@@ -120,10 +118,6 @@ If html or pdf is the source, only markdown output is supported.
 ```
 
 ```text
-PDF generation uses wkhtmltopdf when it is available and falls back to weasyprint when wkhtmltopdf is not installed.
-```
-
-```text
 If the source file does not exist or the extension is unsupported, the skill exits non-zero and reports the problem clearly.
 ```
 
@@ -137,3 +131,5 @@ Progress logs are printed to stderr during conversion so long-running pdf and ht
 - `docs/usage.md`
 - `docs/changes/2026-04-30-initial-release.md`
 - `docs/changes/2026-04-30-macos-pdf-backend-fix.md`
+- `docs/changes/2026-04-30-positional-cli-and-progress.md`
+- `docs/changes/2026-04-30-all-perl-conversion-stack.md`

@@ -1,5 +1,10 @@
 Revision history for markdown
 
+0.04 2026-04-30
+    - replaced the remaining external document converters with a Perl-only module stack
+    - removed `aptfile` and `brewfile` in favor of `cpanfile`
+    - switched markdown-to-pdf rendering to `PDF::API2`
+
 0.03 2026-04-30
     - made positional file arguments the primary CLI flow for `markdown.convert`
     - added visible stderr progress logging for long-running conversion steps

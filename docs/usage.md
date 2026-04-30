@@ -12,19 +12,14 @@ Local workspace install:
 dashboard skills install ~/projects/skills/skills/markdown
 ```
 
-## Runtime Packages
+## Runtime Modules
 
-Ubuntu and Debian-family:
+This skill declares its runtime in `cpanfile`:
 
-```bash
-dashboard apt install pandoc poppler-utils wkhtmltopdf
-```
-
-macOS:
-
-```bash
-dashboard brew install pandoc poppler weasyprint
-```
+- `Markdown::Perl`
+- `HTML::WikiConverter`
+- `PDF::API2`
+- `CAM::PDF`
 
 ## Command
 
@@ -64,12 +59,6 @@ Legacy flag syntax still works:
 dashboard markdown.convert --from notes.md --html --to notes.html
 ```
 
-## Pdf Backend Selection
-
-- on Ubuntu and Debian-family hosts, the documented package path installs `wkhtmltopdf`
-- on macOS, the documented package path installs `weasyprint`
-- at runtime the skill prefers `wkhtmltopdf` and falls back to `weasyprint`
-
 ## Output Naming Rules
 
 - when the target path is omitted for html or pdf input, the skill reuses the source basename and changes only the extension to `.md`
@@ -81,4 +70,4 @@ dashboard markdown.convert --from notes.md --html --to notes.html
 
 - conversion progress is printed to `stderr`
 - the log includes detected source and target formats
-- the log includes the active conversion step and the command being run
+- the log includes the active conversion step

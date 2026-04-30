@@ -5,15 +5,15 @@ use warnings;
 
 use File::Basename qw(fileparse);
 use File::Spec;
-use File::Temp qw(tempdir);
 
 sub new {
     my ( $class, %args ) = @_;
     my $self = bless {
-        run_command       => $args{run_command} || \&_default_run_command,
-        command_available => $args{command_available} || \&_default_command_available,
-        logger            => $args{logger} || sub { },
-        tempdir_factory   => $args{tempdir_factory} || sub { tempdir( CLEANUP => 1 ) },
+        markdown_to_html => $args{markdown_to_html} || \&_default_markdown_to_html,
+        markdown_to_pdf  => $args{markdown_to_pdf} || \&_default_markdown_to_pdf,
+        html_to_markdown => $args{html_to_markdown} || \&_default_html_to_markdown,
+        pdf_to_markdown  => $args{pdf_to_markdown} || \&_default_pdf_to_markdown,
+        logger           => $args{logger} || sub { },
     }, $class;
     return $self;
 }
@@ -140,69 +140,52 @@ sub _with_extension {
 
 sub _markdown_to_html {
     my ( $self, $from, $to ) = @_;
-    $self->_log("step=markdown_to_html");
-    $self->_run_command(
-        [
-            'pandoc',
-            '--from', 'gfm',
-            '--to', 'html5',
-            '--standalone',
-            '--output', $to,
-            $from,
-        ]
-    );
+    $self->_log("step=markdown_to_html.perl");
+    my $markdown = $self->_read_text($from);
+    my $html = $self->{markdown_to_html}->($markdown);
+    $self->_write_text( $to, $html );
+    return 1;
 }
 
 sub _html_to_markdown {
     my ( $self, $from, $to ) = @_;
-    $self->_log("step=html_to_markdown");
-    $self->_run_command(
-        [
-            'pandoc',
-            '--from', 'html',
-            '--to', 'gfm',
-            '--output', $to,
-            $from,
-        ]
-    );
+    $self->_log("step=html_to_markdown.perl");
+    my $html = $self->_read_text($from);
+    my $markdown = $self->{html_to_markdown}->($html);
+    $self->_write_text( $to, $markdown );
+    return 1;
 }
 
 sub _markdown_to_pdf {
     my ( $self, $from, $to ) = @_;
-    my $tmpdir = $self->{tempdir_factory}->();
-    my $html = File::Spec->catfile( $tmpdir, 'markdown-to-pdf.html' );
-    $self->_log("step=markdown_to_pdf.prepare_html");
-    $self->_markdown_to_html( $from, $html );
-
-    if ( $self->{command_available}->('wkhtmltopdf') ) {
-        $self->_log("step=markdown_to_pdf.backend=wkhtmltopdf");
-        $self->_run_command( [ 'wkhtmltopdf', $html, $to ] );
-        return 1;
-    }
-
-    if ( $self->{command_available}->('weasyprint') ) {
-        $self->_log("step=markdown_to_pdf.backend=weasyprint");
-        $self->_run_command( [ 'weasyprint', $html, $to ] );
-        return 1;
-    }
-
-    die "No supported markdown-to-pdf backend found. Install wkhtmltopdf or weasyprint\n";
+    my $markdown = $self->_read_text($from);
+    $self->_log("step=markdown_to_pdf.perl");
+    $self->{markdown_to_pdf}->( $markdown, $to );
+    return 1;
 }
 
 sub _pdf_to_markdown {
     my ( $self, $from, $to ) = @_;
-    my $tmpdir = $self->{tempdir_factory}->();
-    my $html = File::Spec->catfile( $tmpdir, 'pdf-to-markdown.html' );
-    $self->_log("step=pdf_to_html");
-    $self->_run_command( [ 'pdftohtml', '-q', '-noframes', '-s', $from, $html ] );
-    $self->_html_to_markdown( $html, $to );
+    $self->_log("step=pdf_to_markdown.perl");
+    my $markdown = $self->{pdf_to_markdown}->($from);
+    $self->_write_text( $to, $markdown );
+    return 1;
 }
 
-sub _run_command {
-    my ( $self, $argv ) = @_;
-    $self->_log( 'command=' . join( ' ', @{$argv} ) );
-    $self->{run_command}->($argv);
-    $self->_log( 'command_done=' . $argv->[0] );
+sub _read_text {
+    my ( $self, $path ) = @_;
+    open my $fh, '<:raw', $path or die "Unable to read $path: $!\n";
+    local $/;
+    my $content = <$fh>;
+    close $fh or die "Unable to close $path: $!\n";
+    return $content;
+}
+
+sub _write_text {
+    my ( $self, $path, $content ) = @_;
+    open my $fh, '>:raw', $path or die "Unable to write $path: $!\n";
+    print {$fh} $content;
+    close $fh or die "Unable to close $path: $!\n";
     return 1;
 }
 
@@ -212,18 +195,123 @@ sub _log {
     return 1;
 }
 
-sub _default_run_command {
-    my ($argv) = @_;
-    my $rc = system @{$argv};
-    die "Failed to run @$argv\n" if $rc != 0;
+sub _default_markdown_to_html {
+    my ($markdown) = @_;
+    require Markdown::Perl;
+    my $converter = Markdown::Perl->new;
+    return $converter->convert($markdown);
+}
+
+sub _default_html_to_markdown {
+    my ($html) = @_;
+    require HTML::WikiConverter;
+    my $converter = HTML::WikiConverter->new( dialect => 'Markdown' );
+    return $converter->html2wiki($html);
+}
+
+sub _default_markdown_to_pdf {
+    my ( $markdown, $to ) = @_;
+    require PDF::API2;
+
+    my $pdf = PDF::API2->new;
+    my $page = $pdf->page;
+    $page->mediabox('A4');
+    my $text = $page->text;
+    my $font_regular = $pdf->corefont( 'Helvetica',      -encoding => 'utf8' );
+    my $font_bold    = $pdf->corefont( 'Helvetica-Bold', -encoding => 'utf8' );
+    my $x = 50;
+    my $y = 792 - 50;
+    my $width = 595 - 100;
+
+    for my $raw_line ( split /\n/, $markdown ) {
+        my $line = $raw_line;
+        my $font = $font_regular;
+        my $size = 12;
+        my $leading = 16;
+
+        if ( $line =~ s/^###\s+// ) {
+            $font = $font_bold;
+            $size = 14;
+            $leading = 20;
+        }
+        elsif ( $line =~ s/^##\s+// ) {
+            $font = $font_bold;
+            $size = 18;
+            $leading = 24;
+        }
+        elsif ( $line =~ s/^#\s+// ) {
+            $font = $font_bold;
+            $size = 24;
+            $leading = 30;
+        }
+        elsif ( $line =~ s/^[-*]\s+/* / ) {
+            $size = 12;
+        }
+
+        my @wrapped = _wrap_text( $font, $size, $line, $width );
+        @wrapped = ('') if !@wrapped;
+
+        for my $segment (@wrapped) {
+            if ( $y < 50 ) {
+                $page = $pdf->page;
+                $page->mediabox('A4');
+                $text = $page->text;
+                $y = 792 - 50;
+            }
+            $text->font( $font, $size );
+            $text->translate( $x, $y );
+            $text->text($segment);
+            $y -= $leading;
+        }
+
+        $y -= 6 if $raw_line =~ /^\s*$/;
+    }
+
+    $pdf->saveas($to);
     return 1;
 }
 
-sub _default_command_available {
-    my ($command) = @_;
-    return 0 if !defined $command || $command eq '';
-    my $rc = system( 'sh', '-c', "command -v '$command' >/dev/null 2>&1" );
-    return $rc == 0 ? 1 : 0;
+sub _wrap_text {
+    my ( $font, $size, $line, $width ) = @_;
+    return ('') if !defined $line || $line eq '';
+    my @words = split /\s+/, $line;
+    my @lines;
+    my $current = shift @words;
+    $current = '' if !defined $current;
+
+    for my $word (@words) {
+        my $candidate = length $current ? "$current $word" : $word;
+        my $candidate_width = ( $font->width($candidate) / 1000 ) * $size;
+        if ( $candidate_width <= $width ) {
+            $current = $candidate;
+            next;
+        }
+        push @lines, $current;
+        $current = $word;
+    }
+
+    push @lines, $current if defined $current;
+    return @lines;
+}
+
+sub _default_pdf_to_markdown {
+    my ($from) = @_;
+    require CAM::PDF;
+    my $pdf = CAM::PDF->new($from);
+    my $pages = $pdf->numPages();
+    my @chunks;
+    for my $page ( 1 .. $pages ) {
+        my $text = $pdf->getPageText($page);
+        $text = '' if !defined $text;
+        $text =~ s/\r\n?/\n/g;
+        $text =~ s/[ \t]+\n/\n/g;
+        $text =~ s/\n{3,}/\n\n/g;
+        $text =~ s/\A\s+|\s+\z//g;
+        push @chunks, $text if length $text;
+    }
+    my $markdown = join "\n\n", @chunks;
+    $markdown .= "\n" if length $markdown;
+    return $markdown;
 }
 
 1;

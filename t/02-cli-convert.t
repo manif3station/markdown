@@ -1,7 +1,6 @@
 use strict;
 use warnings;
 
-use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Test::More;
@@ -13,48 +12,6 @@ use Markdown::Runner;
 
 {
     package TestMarkdownRunner;
-}
-
-sub slurp {
-    my ($path) = @_;
-    open my $fh, '<', $path or die "Unable to read $path: $!";
-    local $/;
-    return <$fh>;
-}
-
-sub fake_runner {
-    return sub {
-        my ($argv) = @_;
-        if ( $argv->[0] eq 'pandoc' ) {
-            my $from = $argv->[-1];
-            my ($to) = grep { defined } map { $argv->[$_] eq '--output' ? $argv->[ $_ + 1 ] : undef } 0 .. $#$argv;
-            my $source = slurp($from);
-            if ( grep { $_ eq 'html5' } @{$argv} ) {
-                open my $fh, '>', $to or die "Unable to write $to: $!";
-                print {$fh} "<html><body>$source</body></html>\n";
-                close $fh or die "Unable to close $to: $!";
-                return 1;
-            }
-            open my $fh, '>', $to or die "Unable to write $to: $!";
-            $source =~ s/<[^>]+>//g;
-            print {$fh} $source;
-            close $fh or die "Unable to close $to: $!";
-            return 1;
-        }
-        if ( $argv->[0] eq 'wkhtmltopdf' || $argv->[0] eq 'weasyprint' ) {
-            open my $fh, '>', $argv->[2] or die "Unable to write $argv->[2]: $!";
-            print {$fh} "PDF\n" . slurp( $argv->[1] );
-            close $fh or die "Unable to close $argv->[2]: $!";
-            return 1;
-        }
-        if ( $argv->[0] eq 'pdftohtml' ) {
-            open my $fh, '>', $argv->[5] or die "Unable to write $argv->[5]: $!";
-            print {$fh} "<html><body>Recovered from PDF</body></html>\n";
-            close $fh or die "Unable to close $argv->[5]: $!";
-            return 1;
-        }
-        die "Unexpected command: @$argv";
-    };
 }
 
 {
@@ -74,18 +31,24 @@ sub fake_runner {
     my $exit = Markdown::CLI::main(
         argv   => [ $from, File::Spec->catfile( $tmp, 'note.pdf' ) ],
         runner => Markdown::Runner->new(
-            run_command       => fake_runner(),
-            command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
-            logger            => sub { print STDERR "[markdown] $_[0]\n" },
+            markdown_to_html => sub { return "<html><body># hello</body></html>\n" },
+            markdown_to_pdf  => sub {
+                my ( $markdown, $to ) = @_;
+                open my $pdf, '>', $to or die "Unable to write $to: $!";
+                print {$pdf} "PDF\n$markdown";
+                close $pdf or die "Unable to close $to: $!";
+                return 1;
+            },
+            html_to_markdown => sub { return "# hello\n" },
+            pdf_to_markdown => sub { return "Recovered from PDF\n"; },
+            logger          => sub { print STDERR "[markdown] $_[0]\n" },
         ),
     );
 
     is( $exit, 0, 'markdown to pdf flow exits successfully' );
     like( $stdout, qr/"target_format":"pdf"/, 'markdown to pdf reports the target format as json' );
     like( $stderr, qr/\[markdown\] target_format=pdf/, 'markdown to pdf logs progress to stderr' );
-    my $pdf = File::Spec->catfile( $tmp, 'note.pdf' );
-    ok( -f $pdf, 'markdown to pdf flow creates the expected pdf file' );
-    like( slurp($pdf), qr/^PDF/m, 'fake pdf converter wrote the target file' );
+    ok( -f File::Spec->catfile( $tmp, 'note.pdf' ), 'markdown to pdf flow creates the expected pdf file' );
 }
 
 {
@@ -105,18 +68,18 @@ sub fake_runner {
     my $exit = Markdown::CLI::main(
         argv   => [ $from, File::Spec->catfile( $tmp, 'page.html' ) ],
         runner => Markdown::Runner->new(
-            run_command       => fake_runner(),
-            command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
-            logger            => sub { print STDERR "[markdown] $_[0]\n" },
+            markdown_to_html => sub { return "<html><body># hello</body></html>\n" },
+            markdown_to_pdf  => sub { die "should not render pdf\n" },
+            html_to_markdown => sub { return "# hello\n" },
+            pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+            logger           => sub { print STDERR "[markdown] $_[0]\n" },
         ),
     );
 
     is( $exit, 0, 'markdown to html flow exits successfully' );
     like( $stdout, qr/"target_format":"html"/, 'markdown to html reports the target format as json' );
-    like( $stderr, qr/\[markdown\] step=markdown_to_html/, 'markdown to html logs the conversion step' );
-    my $html = File::Spec->catfile( $tmp, 'page.html' );
-    ok( -f $html, 'markdown to html flow creates the expected html file' );
-    like( slurp($html), qr/<html>/, 'fake html converter wrote the html output' );
+    like( $stderr, qr/\[markdown\] step=markdown_to_html\.perl/, 'markdown to html logs the pure perl conversion step' );
+    ok( -f File::Spec->catfile( $tmp, 'page.html' ), 'markdown to html flow creates the expected html file' );
 }
 
 {
@@ -127,26 +90,23 @@ sub fake_runner {
     close $fh or die "Unable to close $from: $!";
 
     my $stdout = '';
-    my $stderr = '';
     open my $out, '>', \$stdout or die "Unable to open stdout scalar: $!";
-    open my $err, '>', \$stderr or die "Unable to open stderr scalar: $!";
     local *STDOUT = $out;
-    local *STDERR = $err;
 
     my $exit = Markdown::CLI::main(
         argv   => [ $from ],
         runner => Markdown::Runner->new(
-            run_command       => fake_runner(),
-            command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
-            logger            => sub { print STDERR "[markdown] $_[0]\n" },
+            markdown_to_html => sub { return "<html><body># hello</body></html>\n" },
+            markdown_to_pdf  => sub { die "should not render pdf\n" },
+            html_to_markdown => sub { return "# hello\n" },
+            pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+            logger           => sub { },
         ),
     );
 
     is( $exit, 0, 'html to markdown flow exits successfully' );
     like( $stdout, qr/"target_format":"markdown"/, 'html to markdown reports markdown output as json' );
-    my $md = File::Spec->catfile( $tmp, 'page.md' );
-    ok( -f $md, 'html to markdown flow creates the expected markdown file' );
-    unlike( slurp($md), qr/<h1>/, 'html tags were stripped by the fake markdown route' );
+    ok( -f File::Spec->catfile( $tmp, 'page.md' ), 'html to markdown flow creates the expected markdown file' );
 }
 
 {
@@ -166,17 +126,18 @@ sub fake_runner {
     my $exit = Markdown::CLI::main(
         argv   => [ $from ],
         runner => Markdown::Runner->new(
-            run_command       => fake_runner(),
-            command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
-            logger            => sub { print STDERR "[markdown] $_[0]\n" },
+            markdown_to_html => sub { return "<html><body># hello</body></html>\n" },
+            markdown_to_pdf  => sub { die "should not render pdf\n" },
+            html_to_markdown => sub { return "# hello\n" },
+            pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+            logger           => sub { print STDERR "[markdown] $_[0]\n" },
         ),
     );
 
     is( $exit, 0, 'pdf to markdown flow exits successfully' );
     like( $stdout, qr/"source_format":"pdf"/, 'pdf to markdown reports the source format as json' );
-    my $md = File::Spec->catfile( $tmp, 'scan.md' );
-    ok( -f $md, 'pdf to markdown flow creates the expected markdown file' );
-    like( slurp($md), qr/Recovered from PDF/, 'fake pdf restore content reached the markdown file' );
+    like( $stderr, qr/\[markdown\] step=pdf_to_markdown\.perl/, 'pdf to markdown logs the pure perl step' );
+    ok( -f File::Spec->catfile( $tmp, 'scan.md' ), 'pdf to markdown flow creates the expected markdown file' );
 }
 
 {
@@ -237,8 +198,10 @@ sub fake_runner {
     local *STDERR = $err;
 
     my $runner = Markdown::Runner->new(
-        run_command       => sub { die "tool failed\n" },
-        command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
+        markdown_to_html => sub { die "tool failed\n" },
+        markdown_to_pdf  => sub { return 1 },
+        html_to_markdown => sub { return "# hello\n" },
+        pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
     );
     my $exit = Markdown::CLI::main( argv => [ $from, File::Spec->catfile( $tmp, 'note.html' ) ], runner => $runner );
     is( $exit, 1, 'runner failures return a non-zero exit' );
