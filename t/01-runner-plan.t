@@ -373,7 +373,11 @@ MARKDOWN
     ok( -f $to, 'default markdown to pdf path writes the target file' );
     ok( scalar(@page_calls) > 1, 'default markdown to pdf path can start a new page when the content is long enough' );
     ok( scalar @drawn_rects >= 12, 'default markdown to pdf draws table cell rectangles for the markdown table' );
-    ok( scalar grep { defined $_ && $_ =~ /ServiceImpl\.java/ && $_ !~ /`/ } @drawn_text, 'default markdown to pdf strips inline-code backticks before drawing table text' );
+    ok(
+        scalar( grep { defined $_ && $_ !~ /`/ } @drawn_text )
+          && scalar( grep { defined $_ && $_ =~ /ServiceImpl\.java/ } @drawn_text ),
+        'default markdown to pdf strips inline-code backticks before drawing table text'
+    );
     ok( scalar grep { defined $_ && $_ =~ /Production class/ } @drawn_text, 'default markdown to pdf renders the table header text' );
     ok( scalar grep { defined $_ && $_ =~ /Current line/ } @drawn_text, 'default markdown to pdf renders wrapped table header text' );
     ok( !scalar grep { defined $_ && /\|/ } @drawn_text, 'default markdown to pdf does not draw raw pipe-table characters' );
@@ -423,6 +427,99 @@ MARKDOWN
         'default markdown to pdf path accepts explicit layout settings'
     );
     is_deeply( \@mediabox_args, [ 0, 0, 1191, 842 ], 'default markdown to pdf path sets the expected A3 landscape media box' );
+}
+
+{
+    no warnings 'redefine';
+    no warnings 'once';
+    local *PDF::API2::Resource::Font::CoreFont::width = sub { return length( $_[1] || '' ) * 500 };
+    my @segments = Markdown::Runner::_wrap_text(
+        bless( {}, 'PDF::API2::Resource::Font::CoreFont' ),
+        11,
+        'src/test/java/com/example/really/long/path/ManualPaymentNoteHelperTest.java',
+        60,
+    );
+    ok( scalar(@segments) > 1, 'wrap_text splits a long path-like token into multiple segments' );
+
+    is_deeply(
+        [ Markdown::Runner::_token_fragments('.json') ],
+        ['.json'],
+        'token_fragments handles a generic dot-prefixed fragment'
+    );
+    is_deeply(
+        [ Markdown::Runner::_token_fragments('100%') ],
+        ['100%'],
+        'token_fragments handles numeric fragments'
+    );
+    is_deeply(
+        [ Markdown::Runner::_token_fragments('__') ],
+        ['__'],
+        'token_fragments handles punctuation fragments'
+    );
+    is_deeply(
+        [ Markdown::Runner::_token_fragments('@') ],
+        ['@'],
+        'token_fragments falls back to single-character fragments'
+    );
+    ok(
+        !defined Markdown::Runner::_rebalance_extension_fragment(
+            bless( {}, 'PDF::API2::Resource::Font::CoreFont' ),
+            11,
+            'AlphaBeta',
+            '.json',
+            4,
+        ),
+        'rebalance_extension_fragment returns undef when no readable rebalance fits'
+    );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $to = File::Spec->catfile( $tmp, 'overlap.pdf' );
+    my @drawn_text;
+    my @drawn_rects;
+
+    no warnings 'redefine';
+    no warnings 'once';
+    my $pdf_obj = bless {}, 'PDF::API2';
+    my $page_obj = bless {}, 'PDF::API2::Page';
+    my $text_obj = bless {}, 'PDF::API2::Content';
+    my $gfx_obj = bless {}, 'PDF::API2::Content';
+    my $font_obj = bless {}, 'PDF::API2::Resource::Font::CoreFont';
+
+    local $INC{'PDF/API2.pm'} = __FILE__;
+    local *PDF::API2::new      = sub { return $pdf_obj };
+    local *PDF::API2::page     = sub { return $page_obj };
+    local *PDF::API2::corefont = sub { return $font_obj };
+    local *PDF::API2::saveas   = sub {
+        my ( $self, $path ) = @_;
+        open my $pdf, '>', $path or die "Unable to write $path: $!";
+        print {$pdf} "pdf";
+        close $pdf or die "Unable to close $path: $!";
+        return 1;
+    };
+    local *PDF::API2::Page::mediabox = sub { return 1 };
+    local *PDF::API2::Page::text     = sub { return $text_obj };
+    local *PDF::API2::Page::gfx      = sub { return $gfx_obj };
+    local *PDF::API2::Content::font      = sub { return 1 };
+    local *PDF::API2::Content::translate = sub { return 1 };
+    local *PDF::API2::Content::text      = sub { push @drawn_text, $_[1]; return 1 };
+    local *PDF::API2::Content::rect      = sub { push @drawn_rects, [ @_[ 1 .. 4 ] ]; return 1 };
+    local *PDF::API2::Content::stroke    = sub { return 1 };
+    local *PDF::API2::Resource::Font::CoreFont::width = sub { return length( $_[1] || '' ) * 500 };
+
+    my $markdown = <<'MARKDOWN';
+| Order | Target files | Action | Module coverage now |
+| --- | --- | --- | --- |
+| 1 | src/test/java/com/example/really/long/path/ManualPaymentNoteHelperTest.java | MakeManualPaymentNoteHelperTest.javacovertheregressionpathwithoutoverlap | confirm coverage branch |
+MARKDOWN
+
+    my $default_runner = Markdown::Runner->new;
+    ok( $default_runner->{markdown_to_pdf}->( $markdown, $to, { paper => 'A4', orientation => 'portrait' } ), 'default markdown to pdf handles long-table-token regression input' );
+    ok( scalar(@drawn_rects) >= 8, 'long-table-token regression still draws the table rectangles' );
+    ok( scalar grep { defined $_ && $_ =~ /src\/test\/java\/com\// } @drawn_text, 'long path text is still rendered into the table' );
+    ok( scalar grep { defined $_ && $_ =~ /HelperTest\.java/ } @drawn_text, 'long path token is wrapped into later cell segments' );
+    ok( scalar grep { defined $_ && $_ =~ /MakeManualPayment/ } @drawn_text, 'long action token is rendered into the action cell' );
 }
 
 {

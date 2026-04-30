@@ -26,6 +26,7 @@ The skill also adds a local `Markdown::Enhancer` layer above those modules. That
 - blockquotes
 
 For pdf output, the skill also draws markdown tables as table cells with borders instead of flattening the rows into one plain text stream.
+Long PDF table values are wrapped inside each cell, and the row height grows to fit the extra lines.
 
 The preferred interface is positional:
 

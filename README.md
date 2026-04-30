@@ -27,6 +27,7 @@ This skill adds a CLI converter that:
 - infers the conversion route from positional file arguments and file extensions
 - lets the caller choose PDF paper size with `--paper` and orientation with `--landscape` or `--portrait`
 - prints step-by-step progress to `stderr` while it works
+- wraps long PDF table-cell content inside the cell and increases row height to fit it
 
 ## Developer Dashboard Feature Added
 
@@ -112,6 +113,7 @@ dashboard markdown.convert report.md report.pdf
 The resulting pdf now strips raw pipe-table syntax and backticks instead of printing the markdown markers directly.
 
 For markdown tables, the pdf renderer now draws table cell structure instead of collapsing the table into plain paragraph text.
+Long table values such as class names, test filenames, and status text are now wrapped inside the same cell instead of spilling into adjacent columns.
 
 Convert html back to markdown with the same basename:
 
@@ -147,6 +149,10 @@ Use `-A 1`, `2`, `3`, or `4` as the compact shorthand for `--paper A1`, `A2`, `A
 
 ```text
 Use `--landscape` for wider tables. The default orientation is portrait.
+```
+
+```text
+Use the default PDF table renderer when a markdown table contains long class names, paths, or action text. The skill now wraps those values inside each cell and grows the row height to match.
 ```
 
 ```text
@@ -196,3 +202,4 @@ Progress logs are printed to stderr during conversion so long-running pdf and ht
 - `docs/changes/2026-04-30-positional-cli-and-progress.md`
 - `docs/changes/2026-04-30-all-perl-conversion-stack.md`
 - `docs/changes/2026-04-30-markdown-enhancer-rendering-fix.md`
+- `docs/changes/2026-04-30-pdf-table-cell-wrapping-fix.md`

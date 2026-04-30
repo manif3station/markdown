@@ -72,6 +72,7 @@ dashboard markdown.convert report.md report.pdf
 ```
 
 That pdf path now draws a visible table layout for markdown pipe tables and removes raw markdown markers from the cell text.
+It also wraps long table values inside the current cell and grows the row height so adjacent columns do not overlap.
 
 HTML back to markdown:
 
@@ -113,3 +114,4 @@ dashboard markdown.convert --from notes.md --html --to notes.html
 - the log includes detected source and target formats
 - the log includes the active conversion step
 - current renderer fixes proven in this ticket include pipe tables and inline code so raw markdown markers are not left behind in html or pdf output
+- current renderer fixes also include long PDF table-cell wrapping for class names, file paths, and action text

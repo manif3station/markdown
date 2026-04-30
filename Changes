@@ -1,5 +1,10 @@
 Revision history for markdown
 
+0.10 2026-04-30
+    - fixed real PDF table-cell wrapping so long values stay inside their own cells
+    - made PDF table rows grow vertically to fit wrapped filename, path, and action text
+    - fixed PDF text-width measurement to honor actual `PDF::API2` font metrics instead of only the test stub metrics
+
 0.09 2026-04-30
     - fixed the real default PDF renderer so selected paper size and orientation reach `PDF::API2`
     - proved generated `-A 3 --landscape` PDFs use an A3 landscape media box on Linux and macOS

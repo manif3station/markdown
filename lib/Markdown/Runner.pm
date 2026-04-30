@@ -474,24 +474,182 @@ sub _paper_dimensions {
 sub _wrap_text {
     my ( $font, $size, $line, $width ) = @_;
     return ('') if !defined $line || $line eq '';
-    my @words = split /\s+/, $line;
     my @lines;
-    my $current = shift @words;
-    $current = '' if !defined $current;
+    my $current = '';
+    my @tokens = split /(\s+)/, $line;
 
-    for my $word (@words) {
-        my $candidate = length $current ? "$current $word" : $word;
-        my $candidate_width = ( $font->width($candidate) / 1000 ) * $size;
-        if ( $candidate_width <= $width ) {
+    for my $token (@tokens) {
+        next if !defined $token || $token eq '';
+
+        if ( $token =~ /^\s+$/ ) {
+            next if $current eq '';
+            my $candidate = $current . ' ';
+            if ( _text_width( $font, $size, $candidate ) <= $width ) {
+                $current = $candidate;
+                next;
+            }
+            $current =~ s/\s+\z//;
+            push @lines, $current if $current ne '';
+            $current = '';
+            next;
+        }
+
+        my @parts = _split_long_token( $font, $size, $token, $width );
+        for my $part (@parts) {
+            my $candidate = $current . $part;
+            if ( $current eq '' ) {
+                $current = $part;
+                next;
+            }
+            if ( _text_width( $font, $size, $candidate ) <= $width ) {
+                $current = $candidate;
+                next;
+            }
+            $current =~ s/\s+\z//;
+            push @lines, $current if $current ne '';
+            $current = $part;
+        }
+    }
+
+    $current =~ s/\s+\z// if defined $current;
+    push @lines, $current if defined $current;
+    return @lines;
+}
+
+sub _split_long_token {
+    my ( $font, $size, $token, $width ) = @_;
+    return ('') if !defined $token || $token eq '';
+    return ($token) if _text_width( $font, $size, $token ) <= $width;
+
+    my @segments;
+    my $current = '';
+
+    for my $fragment ( _token_fragments($token) ) {
+        my $candidate = $current . $fragment;
+
+        if ( $current ne '' && _text_width( $font, $size, $candidate ) <= $width ) {
             $current = $candidate;
             next;
         }
-        push @lines, $current;
-        $current = $word;
+
+        if ( $current ne '' && $fragment =~ /^\./ ) {
+            my ( $prefix, $tail ) = _rebalance_extension_fragment( $font, $size, $current, $fragment, $width );
+            if ( defined $prefix && defined $tail ) {
+                push @segments, $prefix if $prefix ne '';
+                $current = $tail;
+                next;
+            }
+        }
+
+        if ( $current ne '' ) {
+            push @segments, $current;
+            $current = '';
+        }
+
+        if ( _text_width( $font, $size, $fragment ) <= $width ) {
+            $current = $fragment;
+            next;
+        }
+
+        my @hard = _hard_wrap_fragment( $font, $size, $fragment, $width );
+        push @segments, @hard[ 0 .. $#hard - 1 ] if @hard > 1;
+        $current = $hard[-1] // '';
     }
 
-    push @lines, $current if defined $current;
-    return @lines;
+    push @segments, $current if $current ne '';
+    return @segments;
+}
+
+sub _token_fragments {
+    my ($token) = @_;
+    my @fragments;
+
+    while ( length $token ) {
+        if ( $token =~ s/\A(\/+)// ) {
+            push @fragments, $1;
+            next;
+        }
+
+        if ( $token =~ s/\A(\.(?:java|md|html|pdf|txt))//i ) {
+            push @fragments, $1;
+            next;
+        }
+
+        if ( $token =~ s/\A(\.[A-Za-z0-9]+)// ) {
+            push @fragments, $1;
+            next;
+        }
+
+        if ( $token =~ s/\A([A-Z]+(?=[A-Z][a-z]|\d|[._:\/-]|\z))// ) {
+            push @fragments, $1;
+            next;
+        }
+
+        if ( $token =~ s/\A([A-Z]?[a-z]+)// ) {
+            push @fragments, $1;
+            next;
+        }
+
+        if ( $token =~ s/\A(\d+(?:\.\d+)?%?)// ) {
+            push @fragments, $1;
+            next;
+        }
+
+        if ( $token =~ s/\A([._:-]+)// ) {
+            push @fragments, $1;
+            next;
+        }
+
+        $token =~ s/\A(.)//;
+        push @fragments, $1;
+    }
+
+    return @fragments;
+}
+
+sub _hard_wrap_fragment {
+    my ( $font, $size, $fragment, $width ) = @_;
+    return ('') if !defined $fragment || $fragment eq '';
+
+    my @parts;
+    my $remaining = $fragment;
+    while ( length $remaining ) {
+        my $part = '';
+        for my $char ( split //, $remaining ) {
+            my $candidate = $part . $char;
+            last if length($part) && _text_width( $font, $size, $candidate ) > $width;
+            $part = $candidate;
+        }
+        $part = substr( $remaining, 0, 1 ) if $part eq '';
+        push @parts, $part;
+        $remaining = substr( $remaining, length($part) );
+    }
+
+    return @parts;
+}
+
+sub _rebalance_extension_fragment {
+    my ( $font, $size, $current, $fragment, $width ) = @_;
+    my @parts = _token_fragments($current);
+    return if @parts < 2;
+
+    for my $take ( reverse 1 .. $#parts ) {
+        my $prefix = join '', @parts[ 0 .. $#parts - $take ];
+        my $tail   = join( '', @parts[ $#parts - $take + 1 .. $#parts ] ) . $fragment;
+        next if $prefix eq '';
+        next if _text_width( $font, $size, $prefix ) > $width;
+        next if _text_width( $font, $size, $tail ) > $width;
+        return ( $prefix, $tail );
+    }
+
+    return;
+}
+
+sub _text_width {
+    my ( $font, $size, $text ) = @_;
+    my $raw = $font->width($text);
+    return 0 if !defined $raw;
+    return $raw > 50 ? ( $raw / 1000 ) * $size : $raw * $size;
 }
 
 sub _default_pdf_to_markdown {
