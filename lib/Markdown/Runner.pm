@@ -6,14 +6,18 @@ use warnings;
 use File::Basename qw(fileparse);
 use File::Spec;
 
+use Markdown::Enhancer;
+
 sub new {
     my ( $class, %args ) = @_;
+    my $enhancer = $args{enhancer} || Markdown::Enhancer->new;
     my $self = bless {
-        markdown_to_html => $args{markdown_to_html} || \&_default_markdown_to_html,
-        markdown_to_pdf  => $args{markdown_to_pdf} || \&_default_markdown_to_pdf,
+        markdown_to_html => $args{markdown_to_html} || sub { return _default_markdown_to_html( $_[0], $enhancer ); },
+        markdown_to_pdf  => $args{markdown_to_pdf}  || sub { return _default_markdown_to_pdf( $_[0], $_[1], $enhancer ); },
         html_to_markdown => $args{html_to_markdown} || \&_default_html_to_markdown,
         pdf_to_markdown  => $args{pdf_to_markdown} || \&_default_pdf_to_markdown,
         logger           => $args{logger} || sub { },
+        enhancer         => $enhancer,
     }, $class;
     return $self;
 }
@@ -196,10 +200,9 @@ sub _log {
 }
 
 sub _default_markdown_to_html {
-    my ($markdown) = @_;
-    require Markdown::Perl;
-    my $converter = Markdown::Perl->new;
-    return $converter->convert($markdown);
+    my ( $markdown, $enhancer ) = @_;
+    $enhancer ||= Markdown::Enhancer->new;
+    return $enhancer->markdown_to_html($markdown);
 }
 
 sub _default_html_to_markdown {
@@ -210,8 +213,9 @@ sub _default_html_to_markdown {
 }
 
 sub _default_markdown_to_pdf {
-    my ( $markdown, $to ) = @_;
+    my ( $markdown, $to, $enhancer ) = @_;
     require PDF::API2;
+    $enhancer ||= Markdown::Enhancer->new;
 
     my $pdf = PDF::API2->new;
     my $page = $pdf->page;
@@ -223,7 +227,7 @@ sub _default_markdown_to_pdf {
     my $y = 792 - 50;
     my $width = 595 - 100;
 
-    for my $raw_line ( split /\n/, $markdown ) {
+    for my $raw_line ( @{ $enhancer->markdown_to_pdf_lines($markdown) } ) {
         my $line = $raw_line;
         my $font = $font_regular;
         my $size = 12;

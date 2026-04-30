@@ -1,5 +1,11 @@
 Revision history for markdown
 
+0.05 2026-04-30
+    - added a skill-local `Markdown::Enhancer` layer on top of the CPAN stack
+    - fixed markdown tables so html output renders real `<table>` markup
+    - fixed inline code so html and pdf output no longer show raw backticks
+    - normalized table rendering for pdf output so raw pipe syntax is not left visible
+
 0.04 2026-04-30
     - replaced the remaining external document converters with a Perl-only module stack
     - removed `aptfile` and `brewfile` in favor of `cpanfile`

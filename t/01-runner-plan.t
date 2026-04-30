@@ -202,6 +202,34 @@ my $runner = Markdown::Runner->new(
 
 {
     my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'table.md' );
+    my $to   = File::Spec->catfile( $tmp, 'table.html' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} <<'MARKDOWN';
+| Name | Value |
+| --- | --- |
+| `alpha` | beta |
+MARKDOWN
+    close $fh or die "Unable to close $from: $!";
+
+    no warnings 'redefine';
+    no warnings 'once';
+    local $INC{'Markdown/Perl.pm'} = __FILE__;
+    local *Markdown::Perl::new = sub { return bless {}, 'Markdown::Perl' };
+    local *Markdown::Perl::convert = sub { return $_[1] };
+
+    my $default_runner = Markdown::Runner->new;
+    $default_runner->_markdown_to_html( $from, $to );
+    open my $out, '<', $to or die "Unable to read $to: $!";
+    my $html = do { local $/; <$out> };
+    close $out or die "Unable to close $to: $!";
+    like( $html, qr/<table>/, 'default markdown to html renders markdown tables as html tables' );
+    unlike( $html, qr/\|\s*Name\s*\|/, 'default markdown to html does not leave raw pipe-table syntax behind' );
+    like( $html, qr/<code>alpha<\/code>/, 'default markdown to html renders inline code without backticks' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
     my $from = File::Spec->catfile( $tmp, 'page.html' );
     my $to   = File::Spec->catfile( $tmp, 'page.md' );
     open my $fh, '>', $from or die "Unable to write $from: $!";
@@ -226,6 +254,7 @@ my $runner = Markdown::Runner->new(
     my $tmp = tempdir( CLEANUP => 1 );
     my $to = File::Spec->catfile( $tmp, 'note.pdf' );
     my @page_calls;
+    my @drawn_text;
 
     no warnings 'redefine';
     no warnings 'once';
@@ -249,7 +278,7 @@ my $runner = Markdown::Runner->new(
     local *PDF::API2::Page::text     = sub { return $text_obj };
     local *PDF::API2::Content::font      = sub { return 1 };
     local *PDF::API2::Content::translate = sub { return 1 };
-    local *PDF::API2::Content::text      = sub { return 1 };
+    local *PDF::API2::Content::text      = sub { push @drawn_text, $_[1]; return 1 };
     local *PDF::API2::Resource::Font::CoreFont::width = sub { return length( $_[1] || '' ) * 500 };
 
     my $markdown = join "\n",
@@ -257,13 +286,20 @@ my $runner = Markdown::Runner->new(
       '## Sub Heading',
       '### Minor Heading',
       '- bullet item',
+      '| Name | Value |',
+      '| --- | --- |',
+      '| `alpha` | beta |',
       ('word ' x 120),
-      ( map { "body line $_" } 1 .. 60 );
+      ( map { "body line $_" } 1 .. 220 );
 
     my $default_runner = Markdown::Runner->new;
     ok( $default_runner->{markdown_to_pdf}->( $markdown, $to ), 'default markdown to pdf path uses PDF::API2' );
     ok( -f $to, 'default markdown to pdf path writes the target file' );
     ok( scalar(@page_calls) > 1, 'default markdown to pdf path can start a new page when the content is long enough' );
+    ok( scalar grep { defined $_ && $_ =~ /alpha/ && $_ !~ /`alpha`/ } @drawn_text, 'default markdown to pdf strips inline-code backticks before drawing text' );
+    ok( scalar grep { defined $_ && $_ =~ /Name\s+Value/ } @drawn_text, 'default markdown to pdf renders table header text without raw pipe syntax' );
+    ok( scalar grep { defined $_ && $_ =~ /alpha\s+beta/ } @drawn_text, 'default markdown to pdf renders table row text without raw pipe syntax' );
+    ok( !scalar grep { defined $_ && /\|/ } @drawn_text, 'default markdown to pdf does not draw raw pipe-table characters' );
 }
 
 {

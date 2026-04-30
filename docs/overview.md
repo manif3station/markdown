@@ -18,6 +18,13 @@ The skill uses Perl modules for every supported route:
 - `PDF::API2` for markdown to pdf
 - `CAM::PDF` for pdf to markdown
 
+The skill also adds a local `Markdown::Enhancer` layer above those modules. That layer patches the parts the base stack is weak on:
+
+- markdown pipe tables
+- inline code marked with backticks
+- fenced code blocks
+- blockquotes
+
 The preferred interface is positional:
 
 - `dashboard markdown.convert source.md target.pdf`

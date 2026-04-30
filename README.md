@@ -21,6 +21,7 @@ This skill adds a CLI converter that:
 - turns html into markdown
 - turns pdf into markdown
 - uses Perl modules for all supported conversions instead of relying on host document-converter packages
+- adds a skill-local enhancer layer on top of those Perl modules for markdown features the base stack is weak on, such as tables and inline code
 - reuses the source basename when the caller does not provide an explicit output path
 - appends the right output extension when `--to` omits it
 - infers the conversion route from positional file arguments and file extensions
@@ -57,6 +58,13 @@ The current Perl modules are:
 - `PDF::API2`
 - `CAM::PDF`
 
+On top of that CPAN stack, the skill ships `Markdown::Enhancer` to improve output for:
+
+- markdown tables
+- inline code marked with backticks
+- fenced code blocks
+- blockquotes
+
 ## How To Use It
 
 Convert markdown to pdf with a positional target:
@@ -70,6 +78,22 @@ Convert markdown to html with a positional target:
 ```bash
 dashboard markdown.convert notes.md notes.html
 ```
+
+Convert markdown with a table and inline code to html:
+
+```bash
+dashboard markdown.convert report.md report.html
+```
+
+The resulting html now renders markdown table rows as a real `<table>` and inline code like `` `token` `` as `<code>token</code>`.
+
+Convert the same markdown to pdf:
+
+```bash
+dashboard markdown.convert report.md report.pdf
+```
+
+The resulting pdf now strips raw pipe-table syntax and backticks instead of printing the markdown markers directly.
 
 Convert html back to markdown with the same basename:
 
@@ -133,3 +157,4 @@ Progress logs are printed to stderr during conversion so long-running pdf and ht
 - `docs/changes/2026-04-30-macos-pdf-backend-fix.md`
 - `docs/changes/2026-04-30-positional-cli-and-progress.md`
 - `docs/changes/2026-04-30-all-perl-conversion-stack.md`
+- `docs/changes/2026-04-30-markdown-enhancer-rendering-fix.md`

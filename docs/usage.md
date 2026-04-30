@@ -21,6 +21,8 @@ This skill declares its runtime in `cpanfile`:
 - `PDF::API2`
 - `CAM::PDF`
 
+The skill-local `Markdown::Enhancer` module sits on top of that runtime to improve markdown features the base stack does not render well enough by itself.
+
 ## Command
 
 ```bash
@@ -39,6 +41,18 @@ Markdown to html:
 
 ```bash
 dashboard markdown.convert notes.md notes.html
+```
+
+Markdown with a table and inline code to html:
+
+```bash
+dashboard markdown.convert report.md report.html
+```
+
+Markdown with a table and inline code to pdf:
+
+```bash
+dashboard markdown.convert report.md report.pdf
 ```
 
 HTML back to markdown:
@@ -71,3 +85,4 @@ dashboard markdown.convert --from notes.md --html --to notes.html
 - conversion progress is printed to `stderr`
 - the log includes detected source and target formats
 - the log includes the active conversion step
+- current renderer fixes proven in this ticket include pipe tables and inline code so raw markdown markers are not left behind in html or pdf output
