@@ -1,0 +1,5 @@
+Revision history for markdown
+
+0.01 2026-04-30
+    - created the initial `markdown` skill with CLI conversion support for markdown, html, and pdf
+    - added Docker-verified tests for route selection, output naming, and fake-tool conversion flows
