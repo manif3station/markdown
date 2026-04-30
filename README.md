@@ -22,6 +22,8 @@ This skill adds a CLI converter that:
 - turns pdf into markdown
 - reuses the source basename when the caller does not provide an explicit output path
 - appends the right output extension when `--to` omits it
+- infers the conversion route from positional file arguments and file extensions
+- prints step-by-step progress to `stderr` while it works
 
 ## Developer Dashboard Feature Added
 
@@ -59,48 +61,48 @@ dashboard brew install pandoc poppler weasyprint
 
 ## How To Use It
 
-Convert markdown to pdf with the same basename:
+Convert markdown to pdf with a positional target:
 
 ```bash
-dashboard markdown.convert --from notes.md --pdf
+dashboard markdown.convert notes.md notes.pdf
 ```
 
-Convert markdown to html with an explicit output file:
+Convert markdown to html with a positional target:
 
 ```bash
-dashboard markdown.convert --from notes.md --to notes.html
-```
-
-Convert markdown to html and let the skill add the `.html` suffix:
-
-```bash
-dashboard markdown.convert --from notes.md --html --to ./exports/notes
+dashboard markdown.convert notes.md notes.html
 ```
 
 Convert html back to markdown with the same basename:
 
 ```bash
-dashboard markdown.convert --from notes.html
+dashboard markdown.convert notes.html
 ```
 
 Convert pdf back to markdown with the same basename:
 
 ```bash
-dashboard markdown.convert --from notes.pdf
+dashboard markdown.convert notes.pdf
+```
+
+Convert markdown to html with the legacy flag path:
+
+```bash
+dashboard markdown.convert --from notes.md --html --to ./exports/notes
 ```
 
 ## Normal Cases
 
 ```text
-Use --pdf or --to-pdf when markdown should become a shareable pdf.
+Use a target path ending in `.pdf` when markdown should become a shareable pdf.
 ```
 
 ```text
-Use --html or --to-html when markdown should become a browser-friendly html file.
+Use a target path ending in `.html` when markdown should become a browser-friendly html file.
 ```
 
 ```text
-Use html or pdf as the source with no other target flag when you want markdown back.
+Use html or pdf as the only positional source argument when you want markdown back.
 ```
 
 ## Edge Cases
@@ -110,7 +112,7 @@ If --to omits the final extension, the skill appends the right one for the targe
 ```
 
 ```text
-If markdown is the source and the caller does not provide either a target flag or a .pdf/.html output path, the skill exits non-zero and explains the missing target format.
+If markdown is the source and the caller does not provide a target path ending in `.pdf` or `.html`, the skill exits non-zero and explains the missing target format.
 ```
 
 ```text
@@ -123,6 +125,10 @@ PDF generation uses wkhtmltopdf when it is available and falls back to weasyprin
 
 ```text
 If the source file does not exist or the extension is unsupported, the skill exits non-zero and reports the problem clearly.
+```
+
+```text
+Progress logs are printed to stderr during conversion so long-running pdf and html conversions do not appear stuck.
 ```
 
 ## Docs

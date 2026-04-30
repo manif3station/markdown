@@ -149,6 +149,27 @@ my $runner = Markdown::Runner->new(
 }
 
 {
+    my @logs;
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $logging_runner = Markdown::Runner->new(
+        run_command       => sub { 1 },
+        command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
+        logger            => sub { push @logs, $_[0] },
+    );
+
+    $logging_runner->convert( from => $from, to_pdf => 1 );
+    ok( scalar grep { $_ eq "source=$from" } @logs, 'runner logs the source path' );
+    ok( scalar grep { $_ eq 'target_format=pdf' } @logs, 'runner logs the target format' );
+    ok( scalar grep { $_ eq 'step=markdown_to_pdf.backend=wkhtmltopdf' } @logs, 'runner logs the selected pdf backend' );
+    ok( scalar grep { /^command=pandoc / } @logs, 'runner logs command execution details' );
+}
+
+{
     my $ok = eval { Markdown::Runner::_default_run_command( ['perl', '-e', 'exit 0'] ); 1 };
     ok( $ok, 'default command runner succeeds for a zero exit status' );
 }

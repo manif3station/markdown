@@ -1,5 +1,9 @@
 Revision history for markdown
 
+0.03 2026-04-30
+    - made positional file arguments the primary CLI flow for `markdown.convert`
+    - added visible stderr progress logging for long-running conversion steps
+
 0.02 2026-04-30
     - replaced the macOS pdf package contract with `weasyprint`
     - added runtime fallback from `wkhtmltopdf` to `weasyprint` for markdown to pdf conversion

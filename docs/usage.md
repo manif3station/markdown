@@ -29,7 +29,7 @@ dashboard brew install pandoc poppler weasyprint
 ## Command
 
 ```bash
-dashboard markdown.convert --from <source> [--to <output>] [--pdf|--to-pdf|--html|--to-html]
+dashboard markdown.convert <source> [target]
 ```
 
 ## Proven Examples
@@ -37,25 +37,31 @@ dashboard markdown.convert --from <source> [--to <output>] [--pdf|--to-pdf|--htm
 Markdown to pdf:
 
 ```bash
-dashboard markdown.convert --from notes.md --pdf
+dashboard markdown.convert notes.md notes.pdf
 ```
 
 Markdown to html:
 
 ```bash
-dashboard markdown.convert --from notes.md --to notes.html
+dashboard markdown.convert notes.md notes.html
 ```
 
 HTML back to markdown:
 
 ```bash
-dashboard markdown.convert --from notes.html
+dashboard markdown.convert notes.html
 ```
 
 PDF back to markdown:
 
 ```bash
-dashboard markdown.convert --from notes.pdf
+dashboard markdown.convert notes.pdf
+```
+
+Legacy flag syntax still works:
+
+```bash
+dashboard markdown.convert --from notes.md --html --to notes.html
 ```
 
 ## Pdf Backend Selection
@@ -66,7 +72,13 @@ dashboard markdown.convert --from notes.pdf
 
 ## Output Naming Rules
 
-- when `--to` is omitted, the skill reuses the source basename and changes only the extension
+- when the target path is omitted for html or pdf input, the skill reuses the source basename and changes only the extension to `.md`
 - when `--to` is present without the final output suffix, the skill appends the right one
-- markdown input requires either a pdf/html target flag or an output filename ending in `.pdf` or `.html`
+- markdown input requires a target filename ending in `.pdf` or `.html`, or the legacy `--pdf`/`--html` flags
 - html and pdf input default to markdown output
+
+## Progress Output
+
+- conversion progress is printed to `stderr`
+- the log includes detected source and target formats
+- the log includes the active conversion step and the command being run

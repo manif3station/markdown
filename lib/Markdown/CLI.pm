@@ -11,8 +11,9 @@ use Markdown::Runner;
 sub main {
     my (%args) = @_;
     my $argv = $args{argv} || [];
+    my $logger = $args{logger} || sub { print STDERR "[markdown] $_[0]\n" };
     my %opt = (
-        runner => $args{runner} || Markdown::Runner->new,
+        runner => $args{runner} || Markdown::Runner->new( logger => $logger ),
     );
 
     my $ok = GetOptionsFromArray(
@@ -28,6 +29,20 @@ sub main {
     if ( !$ok ) {
         print STDERR _usage();
         return 1;
+    }
+
+    if ( @{$argv} > 2 ) {
+        print STDERR "Unexpected arguments: @{$argv}\n";
+        print STDERR _usage();
+        return 1;
+    }
+
+    if ( !$opt{from} && @{$argv} ) {
+        $opt{from} = shift @{$argv};
+    }
+
+    if ( !defined $opt{to} && @{$argv} ) {
+        $opt{to} = shift @{$argv};
     }
 
     if ( @{$argv} ) {
@@ -62,13 +77,14 @@ sub main {
 
 sub _usage {
     return <<'USAGE';
-Usage: dashboard markdown.convert --from <file> [--to <file>] [--to-pdf|--pdf|--to-html|--html]
+Usage: dashboard markdown.convert <source> [target]
+       dashboard markdown.convert --from <source> [--to <target>] [--to-pdf|--pdf|--to-html|--html]
 
 Examples:
-  dashboard markdown.convert --from notes.md --pdf
-  dashboard markdown.convert --from notes.md --to notes.html
-  dashboard markdown.convert --from notes.html
-  dashboard markdown.convert --from scan.pdf
+  dashboard markdown.convert notes.md notes.pdf
+  dashboard markdown.convert notes.md notes.html
+  dashboard markdown.convert notes.html
+  dashboard markdown.convert scan.pdf
 USAGE
 }
 

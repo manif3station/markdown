@@ -12,6 +12,7 @@ sub new {
     my $self = bless {
         run_command       => $args{run_command} || \&_default_run_command,
         command_available => $args{command_available} || \&_default_command_available,
+        logger            => $args{logger} || sub { },
         tempdir_factory   => $args{tempdir_factory} || sub { tempdir( CLEANUP => 1 ) },
     }, $class;
     return $self;
@@ -34,6 +35,11 @@ sub convert {
         to            => $args{to},
         target_format => $target_format,
     );
+
+    $self->_log("source=$from");
+    $self->_log("source_format=$source_format");
+    $self->_log("target_format=$target_format");
+    $self->_log("output=$output_path");
 
     if ( $source_format eq 'markdown' && $target_format eq 'html' ) {
         $self->_markdown_to_html( $from, $output_path );
@@ -134,6 +140,7 @@ sub _with_extension {
 
 sub _markdown_to_html {
     my ( $self, $from, $to ) = @_;
+    $self->_log("step=markdown_to_html");
     $self->_run_command(
         [
             'pandoc',
@@ -148,6 +155,7 @@ sub _markdown_to_html {
 
 sub _html_to_markdown {
     my ( $self, $from, $to ) = @_;
+    $self->_log("step=html_to_markdown");
     $self->_run_command(
         [
             'pandoc',
@@ -163,14 +171,17 @@ sub _markdown_to_pdf {
     my ( $self, $from, $to ) = @_;
     my $tmpdir = $self->{tempdir_factory}->();
     my $html = File::Spec->catfile( $tmpdir, 'markdown-to-pdf.html' );
+    $self->_log("step=markdown_to_pdf.prepare_html");
     $self->_markdown_to_html( $from, $html );
 
     if ( $self->{command_available}->('wkhtmltopdf') ) {
+        $self->_log("step=markdown_to_pdf.backend=wkhtmltopdf");
         $self->_run_command( [ 'wkhtmltopdf', $html, $to ] );
         return 1;
     }
 
     if ( $self->{command_available}->('weasyprint') ) {
+        $self->_log("step=markdown_to_pdf.backend=weasyprint");
         $self->_run_command( [ 'weasyprint', $html, $to ] );
         return 1;
     }
@@ -182,13 +193,22 @@ sub _pdf_to_markdown {
     my ( $self, $from, $to ) = @_;
     my $tmpdir = $self->{tempdir_factory}->();
     my $html = File::Spec->catfile( $tmpdir, 'pdf-to-markdown.html' );
+    $self->_log("step=pdf_to_html");
     $self->_run_command( [ 'pdftohtml', '-q', '-noframes', '-s', $from, $html ] );
     $self->_html_to_markdown( $html, $to );
 }
 
 sub _run_command {
     my ( $self, $argv ) = @_;
+    $self->_log( 'command=' . join( ' ', @{$argv} ) );
     $self->{run_command}->($argv);
+    $self->_log( 'command_done=' . $argv->[0] );
+    return 1;
+}
+
+sub _log {
+    my ( $self, $message ) = @_;
+    $self->{logger}->($message);
     return 1;
 }
 
