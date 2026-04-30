@@ -10,8 +10,9 @@ use File::Temp qw(tempdir);
 sub new {
     my ( $class, %args ) = @_;
     my $self = bless {
-        run_command     => $args{run_command} || \&_default_run_command,
-        tempdir_factory => $args{tempdir_factory} || sub { tempdir( CLEANUP => 1 ) },
+        run_command       => $args{run_command} || \&_default_run_command,
+        command_available => $args{command_available} || \&_default_command_available,
+        tempdir_factory   => $args{tempdir_factory} || sub { tempdir( CLEANUP => 1 ) },
     }, $class;
     return $self;
 }
@@ -163,7 +164,18 @@ sub _markdown_to_pdf {
     my $tmpdir = $self->{tempdir_factory}->();
     my $html = File::Spec->catfile( $tmpdir, 'markdown-to-pdf.html' );
     $self->_markdown_to_html( $from, $html );
-    $self->_run_command( [ 'wkhtmltopdf', $html, $to ] );
+
+    if ( $self->{command_available}->('wkhtmltopdf') ) {
+        $self->_run_command( [ 'wkhtmltopdf', $html, $to ] );
+        return 1;
+    }
+
+    if ( $self->{command_available}->('weasyprint') ) {
+        $self->_run_command( [ 'weasyprint', $html, $to ] );
+        return 1;
+    }
+
+    die "No supported markdown-to-pdf backend found. Install wkhtmltopdf or weasyprint\n";
 }
 
 sub _pdf_to_markdown {
@@ -185,6 +197,13 @@ sub _default_run_command {
     my $rc = system @{$argv};
     die "Failed to run @$argv\n" if $rc != 0;
     return 1;
+}
+
+sub _default_command_available {
+    my ($command) = @_;
+    return 0 if !defined $command || $command eq '';
+    my $rc = system( 'sh', '-c', "command -v '$command' >/dev/null 2>&1" );
+    return $rc == 0 ? 1 : 0;
 }
 
 1;

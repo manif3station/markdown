@@ -23,7 +23,7 @@ dashboard apt install pandoc poppler-utils wkhtmltopdf
 macOS:
 
 ```bash
-dashboard brew install pandoc poppler wkhtmltopdf
+dashboard brew install pandoc poppler weasyprint
 ```
 
 ## Command
@@ -57,6 +57,12 @@ PDF back to markdown:
 ```bash
 dashboard markdown.convert --from notes.pdf
 ```
+
+## Pdf Backend Selection
+
+- on Ubuntu and Debian-family hosts, the documented package path installs `wkhtmltopdf`
+- on macOS, the documented package path installs `weasyprint`
+- at runtime the skill prefers `wkhtmltopdf` and falls back to `weasyprint`
 
 ## Output Naming Rules
 

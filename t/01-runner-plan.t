@@ -9,7 +9,10 @@ use lib 'lib';
 
 use Markdown::Runner;
 
-my $runner = Markdown::Runner->new( run_command => sub { 1 } );
+my $runner = Markdown::Runner->new(
+    run_command       => sub { 1 },
+    command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
+);
 
 {
     my $tmp = tempdir( CLEANUP => 1 );
@@ -154,6 +157,51 @@ my $runner = Markdown::Runner->new( run_command => sub { 1 } );
     my $ok = eval { Markdown::Runner::_default_run_command( ['perl', '-e', 'exit 1'] ); 1 };
     ok( !$ok, 'default command runner dies for a non-zero exit status' );
     like( $@, qr/^Failed to run perl -e exit 1/, 'default command runner reports the failed command' );
+}
+
+{
+    my @commands;
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $pdf_runner = Markdown::Runner->new(
+        run_command => sub {
+            my ($argv) = @_;
+            push @commands, [ @{$argv} ];
+            return 1;
+        },
+        command_available => sub { return $_[0] eq 'weasyprint' ? 1 : 0 },
+        tempdir_factory   => sub { return $tmp },
+    );
+
+    my $result = $pdf_runner->convert( from => $from, to_pdf => 1 );
+    is( $result->{target_format}, 'pdf', 'weasyprint fallback still targets pdf' );
+    is( $commands[-1][0], 'weasyprint', 'weasyprint is used when wkhtmltopdf is unavailable' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $pdf_runner = Markdown::Runner->new(
+        run_command       => sub { 1 },
+        command_available => sub { return 0 },
+    );
+
+    my $ok = eval { $pdf_runner->convert( from => $from, to_pdf => 1 ); 1 };
+    ok( !$ok, 'markdown to pdf fails clearly when no backend is available' );
+    like( $@, qr/^No supported markdown-to-pdf backend found/, 'missing pdf backend error names the supported tools' );
+}
+
+{
+    ok( Markdown::Runner::_default_command_available('sh'), 'default command availability check finds a present command' );
+    ok( !Markdown::Runner::_default_command_available('definitely-not-a-real-command-xyz'), 'default command availability check rejects a missing command' );
 }
 
 done_testing;

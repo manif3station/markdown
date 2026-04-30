@@ -24,6 +24,7 @@ my $brewfile = do {
 };
 like( $brewfile, qr/^pandoc$/m, 'brewfile includes pandoc' );
 like( $brewfile, qr/^poppler$/m, 'brewfile includes poppler' );
-like( $brewfile, qr/^wkhtmltopdf$/m, 'brewfile includes wkhtmltopdf' );
+like( $brewfile, qr/^weasyprint$/m, 'brewfile includes weasyprint for markdown to pdf on macOS' );
+unlike( $brewfile, qr/^wkhtmltopdf$/m, 'brewfile no longer references the unavailable wkhtmltopdf package' );
 
 done_testing;

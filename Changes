@@ -1,5 +1,9 @@
 Revision history for markdown
 
+0.02 2026-04-30
+    - replaced the macOS pdf package contract with `weasyprint`
+    - added runtime fallback from `wkhtmltopdf` to `weasyprint` for markdown to pdf conversion
+
 0.01 2026-04-30
     - created the initial `markdown` skill with CLI conversion support for markdown, html, and pdf
     - added Docker-verified tests for route selection, output naming, and fake-tool conversion flows

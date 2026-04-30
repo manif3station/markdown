@@ -11,4 +11,4 @@ The current supported routes are:
 - html to markdown
 - pdf to markdown
 
-The skill uses `pandoc` as the main bridge, `wkhtmltopdf` for pdf generation, and `pdftohtml` when recovering markdown from pdf input.
+The skill uses `pandoc` as the main bridge, `wkhtmltopdf` or `weasyprint` for pdf generation, and `pdftohtml` when recovering markdown from pdf input.

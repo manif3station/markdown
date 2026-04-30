@@ -9,6 +9,7 @@ use Test::More;
 use lib 'lib';
 
 use Markdown::CLI ();
+use Markdown::Runner;
 
 sub slurp {
     my ($path) = @_;
@@ -36,7 +37,7 @@ sub fake_runner {
             close $fh or die "Unable to close $to: $!";
             return 1;
         }
-        if ( $argv->[0] eq 'wkhtmltopdf' ) {
+        if ( $argv->[0] eq 'wkhtmltopdf' || $argv->[0] eq 'weasyprint' ) {
             open my $fh, '>', $argv->[2] or die "Unable to write $argv->[2]: $!";
             print {$fh} "PDF\n" . slurp( $argv->[1] );
             close $fh or die "Unable to close $argv->[2]: $!";
@@ -65,7 +66,10 @@ sub fake_runner {
 
     my $exit = Markdown::CLI::main(
         argv   => [ '--from', $from, '--pdf' ],
-        runner => Markdown::Runner->new( run_command => fake_runner() ),
+        runner => Markdown::Runner->new(
+            run_command       => fake_runner(),
+            command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
+        ),
     );
 
     is( $exit, 0, 'markdown to pdf flow exits successfully' );
@@ -88,7 +92,10 @@ sub fake_runner {
 
     my $exit = Markdown::CLI::main(
         argv   => [ '--from', $from, '--html', '--to', File::Spec->catfile( $tmp, 'page' ) ],
-        runner => Markdown::Runner->new( run_command => fake_runner() ),
+        runner => Markdown::Runner->new(
+            run_command       => fake_runner(),
+            command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
+        ),
     );
 
     is( $exit, 0, 'markdown to html flow exits successfully' );
@@ -111,7 +118,10 @@ sub fake_runner {
 
     my $exit = Markdown::CLI::main(
         argv   => [ '--from', $from ],
-        runner => Markdown::Runner->new( run_command => fake_runner() ),
+        runner => Markdown::Runner->new(
+            run_command       => fake_runner(),
+            command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
+        ),
     );
 
     is( $exit, 0, 'html to markdown flow exits successfully' );
@@ -134,7 +144,10 @@ sub fake_runner {
 
     my $exit = Markdown::CLI::main(
         argv   => [ '--from', $from ],
-        runner => Markdown::Runner->new( run_command => fake_runner() ),
+        runner => Markdown::Runner->new(
+            run_command       => fake_runner(),
+            command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
+        ),
     );
 
     is( $exit, 0, 'pdf to markdown flow exits successfully' );
@@ -191,7 +204,10 @@ sub fake_runner {
     open my $err, '>', \$stderr or die "Unable to open stderr scalar: $!";
     local *STDERR = $err;
 
-    my $runner = Markdown::Runner->new( run_command => sub { die "tool failed\n" } );
+    my $runner = Markdown::Runner->new(
+        run_command       => sub { die "tool failed\n" },
+        command_available => sub { return $_[0] eq 'wkhtmltopdf' ? 1 : 0 },
+    );
     my $exit = Markdown::CLI::main( argv => [ '--from', $from, '--html' ], runner => $runner );
     is( $exit, 1, 'runner failures return a non-zero exit' );
     like( $stderr, qr/^tool failed$/m, 'runner failures are reported clearly' );

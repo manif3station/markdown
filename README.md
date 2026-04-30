@@ -54,7 +54,7 @@ dashboard apt install pandoc poppler-utils wkhtmltopdf
 macOS hosts:
 
 ```bash
-dashboard brew install pandoc poppler wkhtmltopdf
+dashboard brew install pandoc poppler weasyprint
 ```
 
 ## How To Use It
@@ -118,6 +118,10 @@ If html or pdf is the source, only markdown output is supported.
 ```
 
 ```text
+PDF generation uses wkhtmltopdf when it is available and falls back to weasyprint when wkhtmltopdf is not installed.
+```
+
+```text
 If the source file does not exist or the extension is unsupported, the skill exits non-zero and reports the problem clearly.
 ```
 
@@ -126,3 +130,4 @@ If the source file does not exist or the extension is unsupported, the skill exi
 - `docs/overview.md`
 - `docs/usage.md`
 - `docs/changes/2026-04-30-initial-release.md`
+- `docs/changes/2026-04-30-macos-pdf-backend-fix.md`
