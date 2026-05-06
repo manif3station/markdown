@@ -65,3 +65,14 @@ docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-tes
 - Cleanup:
   - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'rm -rf /workspace/skills/markdown/cover_db'`
   - Result: pass
+
+## Latest Verification For `DD-071`
+
+- Functional test:
+  - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && prove -lr t'`
+  - Result: pass
+  - Test count: `Files=6, Tests=201`
+- Coverage test:
+  - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t && cover -report text -select_re "^lib/" -coverage statement -coverage subroutine'`
+  - Result: pass
+  - Coverage: `100.0%` statement and `100.0%` subroutine for `lib/Markdown/CLI.pm`, `lib/Markdown/Enhancer.pm`, and `lib/Markdown/Runner.pm`

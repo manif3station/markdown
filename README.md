@@ -49,6 +49,12 @@ For local development in this workspace:
 dashboard skills install ~/projects/skills/skills/markdown
 ```
 
+## License
+
+`markdown` is released under the MIT License.
+
+See [LICENSE](LICENSE).
+
 ## Runtime Dependencies
 
 This skill now installs its conversion stack through `cpanfile`.
