@@ -1,9 +1,11 @@
 use strict;
 use warnings;
 
+use Cwd qw(abs_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Test::More;
+use Fcntl qw(:mode);
 
 use lib 'lib';
 
@@ -20,6 +22,20 @@ my $runner = Markdown::Runner->new(
     },
     html_to_markdown => sub { my ($html) = @_; $html =~ s/<[^>]+>//g; return $html; },
     pdf_to_markdown => sub { return "Recovered from PDF\n"; },
+    docx_to_pdf     => sub {
+        my ( $from, $to ) = @_;
+        open my $fh, '>', $to or die "Unable to write $to: $!";
+        print {$fh} "PDF from DOCX\n";
+        close $fh or die "Unable to close $to: $!";
+        return 1;
+    },
+    pdf_to_docx     => sub {
+        my ( $from, $to ) = @_;
+        open my $fh, '>', $to or die "Unable to write $to: $!";
+        print {$fh} "DOCX from PDF\n";
+        close $fh or die "Unable to close $to: $!";
+        return 1;
+    },
 );
 
 {
@@ -44,6 +60,55 @@ my $runner = Markdown::Runner->new(
     my $result = $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'custom-output' ), to_pdf => 1 );
     is( $result->{target_format}, 'pdf', 'markdown with --to-pdf targets pdf' );
     is( $result->{to}, File::Spec->catfile( $tmp, 'custom-output.pdf' ), 'pdf output appends extension when missing' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $result = $runner->convert( from => $from );
+    is( $result->{source_format}, 'docx', 'docx source is detected' );
+    is( $result->{target_format}, 'pdf', 'docx defaults to pdf output' );
+    is( $result->{to}, File::Spec->catfile( $tmp, 'report.pdf' ), 'docx source defaults to sibling pdf output' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "%PDF fake\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $result = $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'scan.docx' ) );
+    is( $result->{target_format}, 'docx', 'pdf can target docx explicitly' );
+    is( $result->{to}, File::Spec->catfile( $tmp, 'scan.docx' ), 'pdf to docx keeps the provided output path' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $error = eval { $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'report.html' ) ); 1 };
+    ok( !$error, 'docx rejects non-pdf targets' );
+    like( $@, qr/^DOCX source can only convert to pdf/, 'docx reports the allowed target clearly' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $error = eval { $runner->convert( from => $from, paper => 'A4' ); 1 };
+    ok( !$error, 'docx routes reject markdown-only pdf layout flags' );
+    like( $@, qr/^PDF layout flags are only valid for markdown to PDF output/, 'docx layout-flag rejection is explicit' );
 }
 
 {
@@ -164,6 +229,392 @@ my $runner = Markdown::Runner->new(
     my $result = $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'restored.markdown' ) );
     is( $result->{target_format}, 'markdown', 'pdf converts back to markdown' );
     is( $result->{to}, File::Spec->catfile( $tmp, 'restored.markdown' ), 'markdown output path accepts the .markdown extension' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    my $to   = File::Spec->catfile( $tmp, 'report.pdf' );
+    my @cmd;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $linux_runner = Markdown::Runner->new(
+        platform     => 'linux',
+        find_binary  => sub { return '/usr/bin/soffice' if $_[0] eq 'soffice'; return; },
+        run_command  => sub {
+            @cmd = @_;
+            open my $out, '>', $to or die "Unable to write $to: $!";
+            print {$out} "PDF\n";
+            close $out or die "Unable to close $to: $!";
+            return 1;
+        },
+    );
+
+    $linux_runner->_docx_to_pdf( $from, $to );
+    is_deeply(
+        \@cmd,
+        [ '/usr/bin/soffice', '--headless', '--convert-to', 'pdf', '--outdir', $tmp, abs_path($from) ],
+        'linux docx to pdf uses soffice conversion'
+    );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
+    my $to   = File::Spec->catfile( $tmp, 'scan.docx' );
+    my @cmd;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "%PDF fake\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $linux_runner = Markdown::Runner->new(
+        platform     => 'linux',
+        find_binary  => sub { return '/usr/bin/soffice' if $_[0] eq 'soffice'; return; },
+        run_command  => sub {
+            @cmd = @_;
+            open my $out, '>', $to or die "Unable to write $to: $!";
+            print {$out} "DOCX\n";
+            close $out or die "Unable to close $to: $!";
+            return 1;
+        },
+    );
+
+    $linux_runner->_pdf_to_docx( $from, $to );
+    is_deeply(
+        \@cmd,
+        [ '/usr/bin/soffice', '--headless', '--convert-to', 'docx', '--outdir', $tmp, abs_path($from) ],
+        'linux pdf to docx uses soffice conversion'
+    );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    my $to   = File::Spec->catfile( $tmp, 'report.pdf' );
+    my @call;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $windows_runner = Markdown::Runner->new(
+        platform       => 'MSWin32',
+        find_binary    => sub { return 'powershell.exe' if $_[0] eq 'powershell.exe'; return; },
+        run_powershell => sub {
+            @call = @_;
+            open my $out, '>', $to or die "Unable to write $to: $!";
+            print {$out} "PDF\n";
+            close $out or die "Unable to close $to: $!";
+            return 1;
+        },
+    );
+
+    $windows_runner->_docx_to_pdf( $from, $to );
+    is( $call[0], 'powershell.exe', 'windows docx to pdf uses powershell automation' );
+    like( $call[1], qr/SaveAs2/, 'windows docx to pdf powershell script automates Word save-as' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    my $to   = File::Spec->catfile( $tmp, 'report.pdf' );
+    my @cmd;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $windows_runner = Markdown::Runner->new(
+        platform    => 'MSWin32',
+        find_binary => sub { return 'C:\\LibreOffice\\soffice.exe' if $_[0] =~ /LibreOffice/; return; },
+    );
+    local *Markdown::Runner::_windows_word_available = sub { return 0 };
+    local *Markdown::Runner::_libreoffice_convert = sub { @cmd = @_; return 1 };
+
+    $windows_runner->_default_docx_to_pdf( $from, $to );
+    is_deeply(
+        \@cmd,
+        [ $windows_runner, $from, $to, 'pdf' ],
+        'windows docx to pdf falls back to LibreOffice when Word is unavailable'
+    );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $windows_runner = Markdown::Runner->new(
+        platform    => 'MSWin32',
+        find_binary => sub { return; },
+    );
+    local *Markdown::Runner::_windows_word_available = sub { return 0 };
+    my $error = eval { $windows_runner->_default_docx_to_pdf( $from, File::Spec->catfile( $tmp, 'report.pdf' ) ); 1 };
+    ok( !$error, 'windows docx to pdf fails clearly when neither Word nor LibreOffice is available' );
+    like( $@, qr/^DOCX to PDF on Windows requires Microsoft Word or LibreOffice/, 'windows docx to pdf missing-backend error is explicit' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    my $to   = File::Spec->catfile( $tmp, 'report.pdf' );
+    my @call;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $mac_runner = Markdown::Runner->new(
+        platform      => 'darwin',
+        run_osascript => sub {
+            @call = @_;
+            open my $out, '>', $to or die "Unable to write $to: $!";
+            print {$out} "PDF\n";
+            close $out or die "Unable to close $to: $!";
+            return 1;
+        },
+    );
+    local *Markdown::Runner::_macos_word_available = sub { return 1 };
+
+    $mac_runner->_docx_to_pdf( $from, $to );
+    like( $call[0], qr/tell application id "com\.microsoft\.Word"/, 'mac docx to pdf uses Word AppleScript' );
+    is( $call[1], $from, 'mac docx to pdf passes the input file path to osascript' );
+    is( $call[2], $to, 'mac docx to pdf passes the output file path to osascript' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    my $to   = File::Spec->catfile( $tmp, 'report.pdf' );
+    my @cmd;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $mac_runner = Markdown::Runner->new(
+        platform    => 'darwin',
+        find_binary => sub { return '/Applications/LibreOffice.app/Contents/MacOS/soffice' if $_[0] =~ /soffice$/; return; },
+    );
+    local *Markdown::Runner::_macos_word_available = sub { return 0 };
+    local *Markdown::Runner::_libreoffice_convert = sub { @cmd = @_; return 1 };
+
+    $mac_runner->_default_docx_to_pdf( $from, $to );
+    is_deeply(
+        \@cmd,
+        [ $mac_runner, $from, $to, 'pdf' ],
+        'mac docx to pdf falls back to LibreOffice when Word is unavailable'
+    );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $mac_runner = Markdown::Runner->new(
+        platform    => 'darwin',
+        find_binary => sub { return; },
+    );
+    local *Markdown::Runner::_macos_word_available = sub { return 0 };
+    my $error = eval { $mac_runner->_default_docx_to_pdf( $from, File::Spec->catfile( $tmp, 'report.pdf' ) ); 1 };
+    ok( !$error, 'mac docx to pdf fails clearly when neither Word nor LibreOffice is available' );
+    like( $@, qr/^DOCX to PDF on macOS requires Microsoft Word or LibreOffice/, 'mac docx to pdf missing-backend error is explicit' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $error = eval { Markdown::Runner->new( platform => 'linux', find_binary => sub { return; } )->_docx_to_pdf( $from, File::Spec->catfile( $tmp, 'report.pdf' ) ); 1 };
+    ok( !$error, 'linux docx to pdf fails clearly when soffice is missing' );
+    like( $@, qr/^DOCX to PDF on Linux requires LibreOffice or soffice/, 'linux docx to pdf missing-backend error is explicit' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "%PDF fake\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $error = eval { Markdown::Runner->new( platform => 'darwin', find_binary => sub { return; } )->_pdf_to_docx( $from, File::Spec->catfile( $tmp, 'scan.docx' ) ); 1 };
+    ok( !$error, 'mac pdf to docx fails clearly when LibreOffice is missing' );
+    like( $@, qr/^PDF to DOCX on macOS requires LibreOffice/, 'mac pdf to docx missing-backend error is explicit' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
+    my $to   = File::Spec->catfile( $tmp, 'scan.docx' );
+    my @cmd;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "%PDF fake\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $windows_runner = Markdown::Runner->new(
+        platform    => 'MSWin32',
+        find_binary => sub { return 'C:\\LibreOffice\\soffice.exe' if $_[0] =~ /LibreOffice/; return; },
+    );
+    local *Markdown::Runner::_windows_word_available = sub { return 0 };
+    local *Markdown::Runner::_libreoffice_convert = sub { @cmd = @_; return 1 };
+
+    $windows_runner->_default_pdf_to_docx( $from, $to );
+    is_deeply(
+        \@cmd,
+        [ $windows_runner, $from, $to, 'docx' ],
+        'windows pdf to docx falls back to LibreOffice when Word is unavailable'
+    );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "%PDF fake\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $windows_runner = Markdown::Runner->new(
+        platform    => 'MSWin32',
+        find_binary => sub { return; },
+    );
+    local *Markdown::Runner::_windows_word_available = sub { return 0 };
+    my $error = eval { $windows_runner->_default_pdf_to_docx( $from, File::Spec->catfile( $tmp, 'scan.docx' ) ); 1 };
+    ok( !$error, 'windows pdf to docx fails clearly when neither Word nor LibreOffice is available' );
+    like( $@, qr/^PDF to DOCX on Windows requires Microsoft Word or LibreOffice/, 'windows pdf to docx missing-backend error is explicit' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "%PDF fake\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $error = eval { Markdown::Runner->new( platform => 'linux', find_binary => sub { return; } )->_default_pdf_to_docx( $from, File::Spec->catfile( $tmp, 'scan.docx' ) ); 1 };
+    ok( !$error, 'linux pdf to docx fails clearly when LibreOffice is missing' );
+    like( $@, qr/^PDF to DOCX on Linux requires LibreOffice or soffice/, 'linux pdf to docx missing-backend error is explicit' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $tool = File::Spec->catfile( $tmp, 'fake-tool' );
+    open my $fh, '>', $tool or die "Unable to write $tool: $!";
+    print {$fh} "#!/bin/sh\nexit 0\n";
+    close $fh or die "Unable to close $tool: $!";
+    chmod 0755, $tool or die "Unable to chmod $tool: $!";
+
+    my $found_absolute = Markdown::Runner::_find_binary($tool);
+    is( $found_absolute, $tool, 'find_binary returns an executable absolute path directly' );
+
+    local $ENV{PATH} = $tmp;
+    my $found_from_path = Markdown::Runner::_find_binary('fake-tool');
+    is( $found_from_path, $tool, 'find_binary resolves executables from PATH' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $cwd = File::Spec->catdir( $tmp, 'cwd' );
+    my $bin = File::Spec->catdir( $cwd, 'bin' );
+    my $tool = File::Spec->catfile( $bin, 'fake-tool' );
+    require File::Path;
+    File::Path::make_path($bin);
+    open my $fh, '>', $tool or die "Unable to write $tool: $!";
+    print {$fh} "#!/bin/sh\nexit 0\n";
+    close $fh or die "Unable to close $tool: $!";
+    chmod 0755, $tool or die "Unable to chmod $tool: $!";
+
+    my $original = Cwd::getcwd();
+    chdir $cwd or die "Unable to chdir to $cwd: $!";
+    my $found_relative = Markdown::Runner::_find_binary( File::Spec->catfile( 'bin', 'fake-tool' ) );
+    chdir $original or die "Unable to restore cwd to $original: $!";
+
+    is( $found_relative, File::Spec->catfile( 'bin', 'fake-tool' ), 'find_binary returns an executable relative path containing a slash directly' );
+}
+
+{
+    my $missing = Markdown::Runner::_find_binary('definitely-missing-tool-no-hit');
+    ok( !defined $missing, 'find_binary returns undef when no executable candidate is found' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $home = File::Spec->catdir( $tmp, 'home' );
+    my $word_app = File::Spec->catdir( $home, 'Applications', 'Microsoft Word.app' );
+    require File::Path;
+    File::Path::make_path($word_app);
+    local $ENV{HOME} = $home;
+    ok( Markdown::Runner->new( platform => 'darwin' )->_macos_word_available, 'macOS Word availability is detected from ~/Applications' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $home = File::Spec->catdir( $tmp, 'home' );
+    require File::Path;
+    File::Path::make_path($home);
+    local $ENV{HOME} = $home;
+    ok( !Markdown::Runner->new( platform => 'darwin' )->_macos_word_available, 'macOS Word availability returns false when no supported app bundle exists' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $missing_dir = File::Spec->catdir( $tmp, 'missing' );
+    my $target = File::Spec->catfile( $missing_dir, 'report.pdf' );
+    my $error = eval { Markdown::Runner->new()->_ensure_output_dir($target); 1 };
+    ok( !$error, 'ensure_output_dir rejects a missing parent directory' );
+    like( $@, qr/^\QOutput directory does not exist: $missing_dir\E/, 'ensure_output_dir reports the missing parent directory clearly' );
+}
+
+{
+    my $ok = eval { Markdown::Runner::_run_command('/bin/true'); 1 };
+    ok( $ok, 'run_command succeeds when the subprocess exits zero' );
+}
+
+{
+    my $ok = eval { Markdown::Runner::_run_powershell( '/bin/true', 'ignored', 'a', 'b' ); 1 };
+    ok( $ok, 'run_powershell succeeds when the subprocess exits zero' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $fake = File::Spec->catfile( $tmp, 'osascript' );
+    open my $fh, '>', $fake or die "Unable to write $fake: $!";
+    print {$fh} "#!/bin/sh\ncat >/dev/null\nexit 0\n";
+    close $fh or die "Unable to close $fake: $!";
+    chmod 0755, $fake or die "Unable to chmod $fake: $!";
+    local $ENV{PATH} = join ':', $tmp, ( $ENV{PATH} || '' );
+
+    my $ok = eval { Markdown::Runner::_run_osascript( "on run argv\nreturn\nend run\n", 'a', 'b' ); 1 };
+    ok( $ok, 'run_osascript succeeds when the osascript subprocess exits zero' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
+    my $to   = File::Spec->catfile( $tmp, 'scan.docx' );
+    my @call;
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "%PDF fake\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $mac_runner = Markdown::Runner->new(
+        platform      => 'darwin',
+        run_osascript => sub {
+            @call = @_;
+            open my $out, '>', $to or die "Unable to write $to: $!";
+            print {$out} "DOCX\n";
+            close $out or die "Unable to close $to: $!";
+            return 1;
+        },
+    );
+
+    $mac_runner->_word_macos_convert( $from, $to, 'docx' );
+    like( $call[0], qr/format document default/, 'mac pdf to docx Word AppleScript uses the docx save format' );
 }
 
 {

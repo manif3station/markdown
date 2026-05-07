@@ -2,4 +2,4 @@
 
 ## `SOW-034`
 
-Create a new `markdown` skill that converts markdown, html, and pdf files between practical documentation formats on Ubuntu and macOS, with an explicit MIT license for reuse and distribution.
+Create a new `markdown` skill that converts markdown, html, pdf, and docx files between practical documentation formats across Linux, macOS, and Windows, with an explicit MIT license for reuse and distribution.

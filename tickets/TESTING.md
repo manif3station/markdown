@@ -76,3 +76,28 @@ docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-tes
   - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t && cover -report text -select_re "^lib/" -coverage statement -coverage subroutine'`
   - Result: pass
   - Coverage: `100.0%` statement and `100.0%` subroutine for `lib/Markdown/CLI.pm`, `lib/Markdown/Enhancer.pm`, and `lib/Markdown/Runner.pm`
+
+## Latest Verification For `DD-072`
+
+- Functional test:
+  - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && cpanm --quiet --notest --installdeps . && rm -rf cover_db && prove -lr t'`
+  - Result: pass
+  - Test count: `Files=6, Tests=255`
+- Coverage test:
+  - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && cpanm --quiet --notest --installdeps . && cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t && cover -report text -select_re "^lib/" -coverage statement -coverage subroutine && rm -rf cover_db'`
+  - Result: pass
+  - Coverage: `100.0%` statement and `100.0%` subroutine for `lib/Markdown/CLI.pm`, `lib/Markdown/Enhancer.pm`, and `lib/Markdown/Runner.pm`
+- Proven route selection:
+  - `dashboard markdown.convert report.docx`
+  - Result: proven by Docker tests, defaults to sibling `report.pdf`
+  - `dashboard markdown.convert report.docx report.pdf`
+  - Result: proven by Docker tests, keeps explicit `.pdf` output path
+  - `dashboard markdown.convert scan.pdf scan.docx`
+  - Result: proven by Docker tests, routes PDF to explicit `.docx` output
+- Proven backend selection:
+  - Linux: LibreOffice / `soffice` route selection is proven for docx-to-pdf and pdf-to-docx
+  - macOS: Microsoft Word automation route selection is proven for docx-to-pdf, with LibreOffice fallback coverage
+  - Windows: Microsoft Word automation through PowerShell COM is proven for docx-to-pdf, with LibreOffice fallback coverage; pdf-to-docx fallback selection is also covered
+- Cleanup:
+  - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'rm -rf /workspace/skills/markdown/cover_db'`
+  - Result: pass

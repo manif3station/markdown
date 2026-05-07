@@ -2,15 +2,15 @@
 
 ## Description
 
-`markdown` is a Developer Dashboard skill that converts markdown, html, and pdf files between practical documentation formats with a Perl-only conversion stack.
+`markdown` is a Developer Dashboard skill that converts markdown, html, pdf, and docx files between practical documentation formats with a Perl-first conversion stack.
 
 ## Value
 
-It gives developers, writers, and operators one DD CLI command to move notes and docs between markdown, browser-ready html, and shareable pdf without switching tools.
+It gives developers, writers, and operators one DD CLI command to move notes and docs between markdown, browser-ready html, shareable pdf, and office-friendly docx without switching tools.
 
 ## Problem It Solves
 
-Documentation work often needs the same content in more than one format. A person may write in markdown, share as pdf, preview as html, or recover markdown from html or pdf later. That conversion work is repetitive and easy to get wrong when done ad hoc.
+Documentation work often needs the same content in more than one format. A person may write in markdown, share as pdf, preview as html, deliver a docx, or recover markdown from html or pdf later. That conversion work is repetitive and easy to get wrong when done ad hoc.
 
 ## What It Does To Solve It
 
@@ -18,9 +18,15 @@ This skill adds a CLI converter that:
 
 - turns markdown into html
 - turns markdown into pdf
+- turns docx into pdf
 - turns html into markdown
 - turns pdf into markdown
-- uses Perl modules for all supported conversions instead of relying on host document-converter packages
+- turns pdf into docx when the target path ends in `.docx`
+- keeps markdown/html/pdf routes on Perl modules
+- uses host Office backends for docx/pdf routes:
+  - Linux: LibreOffice / `soffice`
+  - macOS: Microsoft Word automation first for docx-to-pdf, LibreOffice fallback, LibreOffice for pdf-to-docx
+  - Windows: Microsoft Word automation through PowerShell COM first, LibreOffice fallback
 - adds a skill-local enhancer layer on top of those Perl modules for markdown features the base stack is weak on, such as tables and inline code
 - reuses the source basename when the caller does not provide an explicit output path
 - appends the right output extension when `--to` omits it
@@ -57,7 +63,7 @@ See [LICENSE](LICENSE).
 
 ## Runtime Dependencies
 
-This skill now installs its conversion stack through `cpanfile`.
+This skill now installs its Perl conversion stack through `cpanfile`.
 
 The current Perl modules are:
 
@@ -72,6 +78,12 @@ On top of that CPAN stack, the skill ships `Markdown::Enhancer` to improve outpu
 - inline code marked with backticks
 - fenced code blocks
 - blockquotes
+
+For office-document routes, the skill also declares host backends:
+
+- Linux: `aptfile` installs `libreoffice`
+- macOS: `brewfile` installs `libreoffice`
+- Windows: install Microsoft Word or LibreOffice on the host
 
 ## How To Use It
 
@@ -130,6 +142,18 @@ The resulting pdf now strips raw pipe-table syntax and backticks instead of prin
 For markdown tables, the pdf renderer now draws table cell structure instead of collapsing the table into plain paragraph text.
 Long table values such as class names, test filenames, and status text are now wrapped inside the same cell instead of spilling into adjacent columns.
 
+Convert docx to pdf with the same basename:
+
+```bash
+dashboard markdown.convert report.docx
+```
+
+Convert docx to pdf with an explicit output path:
+
+```bash
+dashboard markdown.convert report.docx report.pdf
+```
+
 Convert html back to markdown with the same basename:
 
 ```bash
@@ -140,6 +164,12 @@ Convert pdf back to markdown with the same basename:
 
 ```bash
 dashboard markdown.convert notes.pdf
+```
+
+Convert pdf to docx with an explicit output path:
+
+```bash
+dashboard markdown.convert scan.pdf scan.docx
 ```
 
 Convert markdown to html with the legacy flag path:
@@ -182,6 +212,14 @@ Use a target path ending in `.html` when markdown should become a browser-friend
 Use html or pdf as the only positional source argument when you want markdown back.
 ```
 
+```text
+Use a `.docx` source when you want a `.pdf` output from an office document. If no target is given, the skill reuses the basename and writes a sibling `.pdf`.
+```
+
+```text
+Use a `.pdf` source with a `.docx` target when you want office-document output instead of markdown recovery.
+```
+
 ## Edge Cases
 
 ```text
@@ -194,6 +232,10 @@ If markdown is the source and the caller does not provide a target path ending i
 
 ```text
 If html or pdf is the source, only markdown output is supported.
+```
+
+```text
+If the source is `.docx`, only `.pdf` output is supported.
 ```
 
 ```text

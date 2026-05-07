@@ -23,6 +23,12 @@ This skill declares its runtime in `cpanfile`:
 
 The skill-local `Markdown::Enhancer` module sits on top of that runtime to improve markdown features the base stack does not render well enough by itself.
 
+For office-document routes, the skill also declares host backends:
+
+- Linux: `aptfile` installs `libreoffice`
+- macOS: `brewfile` installs `libreoffice`
+- Windows: install Microsoft Word or LibreOffice on the host
+
 ## Command
 
 ```bash
@@ -62,6 +68,18 @@ dashboard markdown.convert notes.md notes.pdf -A 10
 
 That path is proven against the real generated PDF page box. The generated file reports `1191 x 842 pts (A3)` in `pdfinfo`.
 
+DOCX to PDF with the same basename:
+
+```bash
+dashboard markdown.convert report.docx
+```
+
+DOCX to PDF with an explicit target:
+
+```bash
+dashboard markdown.convert report.docx report.pdf
+```
+
 Markdown to html:
 
 ```bash
@@ -97,6 +115,12 @@ PDF back to markdown:
 dashboard markdown.convert notes.pdf
 ```
 
+PDF to DOCX with an explicit target:
+
+```bash
+dashboard markdown.convert scan.pdf scan.docx
+```
+
 Legacy flag syntax still works:
 
 ```bash
@@ -106,9 +130,12 @@ dashboard markdown.convert --from notes.md --html --to notes.html
 ## Output Naming Rules
 
 - when the target path is omitted for html or pdf input, the skill reuses the source basename and changes only the extension to `.md`
+- when the target path is omitted for docx input, the skill reuses the source basename and changes only the extension to `.pdf`
 - when `--to` is present without the final output suffix, the skill appends the right one
 - markdown input requires a target filename ending in `.pdf` or `.html`, or the legacy `--pdf`/`--html` flags
 - html and pdf input default to markdown output
+- pdf input can target `.docx` explicitly
+- docx input always targets `.pdf`
 
 ## PDF Layout Controls
 
@@ -127,3 +154,11 @@ dashboard markdown.convert --from notes.md --html --to notes.html
 - the log includes the active conversion step
 - current renderer fixes proven in this ticket include pipe tables and inline code so raw markdown markers are not left behind in html or pdf output
 - current renderer fixes also include long PDF table-cell wrapping for class names, file paths, and action text
+
+## Office Route Notes
+
+- docx-to-pdf uses the host Office backend, not `PDF::API2`
+- Linux requires LibreOffice / `soffice`
+- macOS prefers Microsoft Word automation for docx-to-pdf and can fall back to LibreOffice
+- Windows prefers Microsoft Word automation through PowerShell COM and can fall back to LibreOffice
+- pdf-to-docx uses LibreOffice on Linux and macOS, and Word or LibreOffice on Windows

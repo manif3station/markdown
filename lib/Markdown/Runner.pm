@@ -5,6 +5,7 @@ use warnings;
 
 use File::Basename qw(fileparse);
 use File::Spec;
+use Cwd qw(abs_path);
 
 use Markdown::Enhancer;
 
@@ -16,8 +17,15 @@ sub new {
         markdown_to_pdf  => $args{markdown_to_pdf}  || sub { return _default_markdown_to_pdf( $_[0], $_[1], $_[2], $enhancer ); },
         html_to_markdown => $args{html_to_markdown} || \&_default_html_to_markdown,
         pdf_to_markdown  => $args{pdf_to_markdown} || \&_default_pdf_to_markdown,
+        docx_to_pdf      => $args{docx_to_pdf},
+        pdf_to_docx      => $args{pdf_to_docx},
         logger           => $args{logger} || sub { },
         enhancer         => $enhancer,
+        platform         => $args{platform} || $^O,
+        find_binary      => $args{find_binary} || \&_find_binary,
+        run_command      => $args{run_command} || \&_run_command,
+        run_osascript    => $args{run_osascript} || \&_run_osascript,
+        run_powershell   => $args{run_powershell} || \&_run_powershell,
     }, $class;
     return $self;
 }
@@ -77,6 +85,12 @@ sub convert {
     elsif ( $source_format eq 'pdf' && $target_format eq 'markdown' ) {
         $self->_pdf_to_markdown( $from, $output_path );
     }
+    elsif ( $source_format eq 'docx' && $target_format eq 'pdf' ) {
+        $self->_docx_to_pdf( $from, $output_path );
+    }
+    elsif ( $source_format eq 'pdf' && $target_format eq 'docx' ) {
+        $self->_pdf_to_docx( $from, $output_path );
+    }
     else {
         die "Unsupported conversion route: $source_format -> $target_format\n";
     }
@@ -110,6 +124,7 @@ sub _detect_source_format {
     return 'markdown' if $suffix eq '.md' || $suffix eq '.markdown';
     return 'html'     if $suffix eq '.html' || $suffix eq '.htm';
     return 'pdf'      if $suffix eq '.pdf';
+    return 'docx'     if $suffix eq '.docx';
     die "Unsupported source extension: $suffix\n";
 }
 
@@ -149,13 +164,27 @@ sub _target_format_for {
         die "Markdown source needs a target format\n";
     }
 
+    if ( $source_format eq 'docx' ) {
+        die "PDF layout flags are only valid for markdown to PDF output\n"
+          if ( defined $paper && $paper ne '' ) || $landscape || $portrait;
+        die "DOCX source can only convert to pdf\n" if $to_html;
+        return 'pdf' if $to_pdf;
+        if ( defined $to && $to ne '' ) {
+            my $ext = lc( ( fileparse( $to, qr/\.[^.]*/ ) )[2] || '' );
+            return 'pdf' if $ext eq '.pdf' || $ext eq '';
+            die "DOCX source can only convert to pdf\n";
+        }
+        return 'pdf';
+    }
+
     die "HTML source can only convert to markdown\n" if $source_format eq 'html' && ( $to_pdf || $to_html );
-    die "PDF source can only convert to markdown\n"  if $source_format eq 'pdf'  && ( $to_pdf || $to_html );
+    die "PDF source can only convert to markdown or docx\n"  if $source_format eq 'pdf'  && ( $to_pdf || $to_html );
     die "PDF layout flags are only valid for PDF output\n"
       if ( defined $paper && $paper ne '' ) || $landscape || $portrait;
 
     if ( defined $to && $to ne '' ) {
         my $ext = lc( ( fileparse( $to, qr/\.[^.]*/ ) )[2] || '' );
+        return 'docx' if $source_format eq 'pdf' && $ext eq '.docx';
         die "Only markdown output is supported for $source_format input\n"
           if $ext ne '' && $ext ne '.md' && $ext ne '.markdown';
     }
@@ -172,6 +201,7 @@ sub _output_path {
         markdown => '.md',
         html     => '.html',
         pdf      => '.pdf',
+        docx     => '.docx',
     );
     my $suffix = $suffix_for{$target_format} || die "Missing target suffix for $target_format\n";
 
@@ -219,6 +249,15 @@ sub _markdown_to_pdf {
     return 1;
 }
 
+sub _docx_to_pdf {
+    my ( $self, $from, $to ) = @_;
+    $self->_log("step=docx_to_pdf.platform");
+    if ( $self->{docx_to_pdf} ) {
+        return $self->{docx_to_pdf}->( $from, $to );
+    }
+    return $self->_default_docx_to_pdf( $from, $to );
+}
+
 sub _pdf_layout {
     my ( $self, %args ) = @_;
     return _validate_pdf_layout(%args);
@@ -230,6 +269,15 @@ sub _pdf_to_markdown {
     my $markdown = $self->{pdf_to_markdown}->($from);
     $self->_write_text( $to, $markdown );
     return 1;
+}
+
+sub _pdf_to_docx {
+    my ( $self, $from, $to ) = @_;
+    $self->_log("step=pdf_to_docx.platform");
+    if ( $self->{pdf_to_docx} ) {
+        return $self->{pdf_to_docx}->( $from, $to );
+    }
+    return $self->_default_pdf_to_docx( $from, $to );
 }
 
 sub _read_text {
@@ -266,6 +314,47 @@ sub _default_html_to_markdown {
     require HTML::WikiConverter;
     my $converter = HTML::WikiConverter->new( dialect => 'Markdown' );
     return $converter->html2wiki($html);
+}
+
+sub _default_docx_to_pdf {
+    my ( $self, $from, $to ) = @_;
+    $self->_ensure_output_dir($to);
+    my $platform = $self->{platform} || '';
+
+    if ( $platform eq 'MSWin32' ) {
+        return $self->_word_windows_convert( $from, $to, 'pdf' ) if $self->_windows_word_available;
+        return $self->_libreoffice_convert( $from, $to, 'pdf' ) if $self->_soffice_binary;
+        die "DOCX to PDF on Windows requires Microsoft Word or LibreOffice\n";
+    }
+
+    if ( $platform eq 'darwin' ) {
+        return $self->_word_macos_convert( $from, $to, 'pdf' ) if $self->_macos_word_available;
+        return $self->_libreoffice_convert( $from, $to, 'pdf' ) if $self->_soffice_binary;
+        die "DOCX to PDF on macOS requires Microsoft Word or LibreOffice\n";
+    }
+
+    return $self->_libreoffice_convert( $from, $to, 'pdf' ) if $self->_soffice_binary;
+    die "DOCX to PDF on Linux requires LibreOffice or soffice\n";
+}
+
+sub _default_pdf_to_docx {
+    my ( $self, $from, $to ) = @_;
+    $self->_ensure_output_dir($to);
+    my $platform = $self->{platform} || '';
+
+    if ( $platform eq 'MSWin32' ) {
+        return $self->_word_windows_convert( $from, $to, 'docx' ) if $self->_windows_word_available;
+        return $self->_libreoffice_convert( $from, $to, 'docx' ) if $self->_soffice_binary;
+        die "PDF to DOCX on Windows requires Microsoft Word or LibreOffice\n";
+    }
+
+    if ( $platform eq 'darwin' ) {
+        return $self->_libreoffice_convert( $from, $to, 'docx' ) if $self->_soffice_binary;
+        die "PDF to DOCX on macOS requires LibreOffice\n";
+    }
+
+    return $self->_libreoffice_convert( $from, $to, 'docx' ) if $self->_soffice_binary;
+    die "PDF to DOCX on Linux requires LibreOffice or soffice\n";
 }
 
 sub _default_markdown_to_pdf {
@@ -717,6 +806,149 @@ sub _default_pdf_to_markdown {
     my $markdown = join "\n\n", @chunks;
     $markdown .= "\n" if length $markdown;
     return $markdown;
+}
+
+sub _ensure_output_dir {
+    my ( $self, $path ) = @_;
+    my ( undef, $dir ) = fileparse($path);
+    return 1 if !defined $dir || $dir eq '' || -d $dir;
+    die "Output directory does not exist: $dir\n";
+}
+
+sub _soffice_binary {
+    my ($self) = @_;
+    for my $candidate (
+        'soffice',
+        'libreoffice',
+        '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+        'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+        'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
+      )
+    {
+        my $found = $self->{find_binary}->($candidate);
+        return $found if $found;
+    }
+    return;
+}
+
+sub _windows_word_available {
+    my ($self) = @_;
+    return $self->{find_binary}->('powershell.exe') || $self->{find_binary}->('powershell');
+}
+
+sub _macos_word_available {
+    my ($self) = @_;
+    return 1 if -d '/Applications/Microsoft Word.app';
+    return 1 if $ENV{HOME} && -d File::Spec->catdir( $ENV{HOME}, 'Applications', 'Microsoft Word.app' );
+    return;
+}
+
+sub _libreoffice_convert {
+    my ( $self, $from, $to, $format ) = @_;
+    my $binary = $self->_soffice_binary || die "LibreOffice or soffice was not found\n";
+    my ( undef, $outdir, undef ) = fileparse($to);
+    my $abs_from = abs_path($from) || $from;
+    my $abs_dir  = abs_path($outdir) || $outdir;
+    my @cmd = ( $binary, '--headless', '--convert-to', $format, '--outdir', $abs_dir, $abs_from );
+    $self->{run_command}->(@cmd);
+    die "Converted file was not created: $to\n" if !-f $to;
+    return 1;
+}
+
+sub _word_windows_convert {
+    my ( $self, $from, $to, $target_format ) = @_;
+    my $ps = $self->{find_binary}->('powershell.exe') || $self->{find_binary}->('powershell') || 'powershell.exe';
+    my $format_value = $target_format eq 'pdf' ? 17 : 16;
+    my $script = join "\n",
+      '$inputPath = $args[0]',
+      '$outputPath = $args[1]',
+      '$word = New-Object -ComObject Word.Application',
+      '$word.Visible = $false',
+      '$word.DisplayAlerts = 0',
+      '$doc = $null',
+      'try {',
+      '  $doc = $word.Documents.Open($inputPath, $false, $true, $false)',
+      "  \$doc.SaveAs2(\$outputPath, $format_value)",
+      '} finally {',
+      '  if ($doc -ne $null) { $doc.Close(0) }',
+      '  $word.Quit()',
+      '}';
+    $self->{run_powershell}->( $ps, $script, $from, $to );
+    die "Converted file was not created: $to\n" if !-f $to;
+    return 1;
+}
+
+sub _word_macos_convert {
+    my ( $self, $from, $to, $target_format ) = @_;
+    my $script;
+    if ( $target_format eq 'pdf' ) {
+        $script = <<'APPLESCRIPT';
+on run argv
+    set inPath to item 1 of argv
+    set outPath to item 2 of argv
+    tell application id "com.microsoft.Word"
+        open POSIX file inPath
+        set docRef to active document
+        save as docRef file name ((POSIX file outPath) as text) file format format PDF
+        close docRef saving no
+    end tell
+end run
+APPLESCRIPT
+    }
+    else {
+        $script = <<'APPLESCRIPT';
+on run argv
+    set inPath to item 1 of argv
+    set outPath to item 2 of argv
+    tell application id "com.microsoft.Word"
+        open POSIX file inPath
+        set docRef to active document
+        save as docRef file name ((POSIX file outPath) as text) file format format document default
+        close docRef saving no
+    end tell
+end run
+APPLESCRIPT
+    }
+    $self->{run_osascript}->( $script, $from, $to );
+    die "Converted file was not created: $to\n" if !-f $to;
+    return 1;
+}
+
+sub _find_binary {
+    my ($candidate) = @_;
+    return $candidate if defined $candidate && File::Spec->file_name_is_absolute($candidate) && -x $candidate;
+    return $candidate if defined $candidate && $candidate =~ /^[A-Za-z]:\\/ && -x $candidate;
+    if ( defined $candidate && $candidate =~ m{[/\\]} && -x $candidate ) {
+        return $candidate;
+    }
+    return if !defined $candidate || $candidate eq '';
+    for my $dir ( split /[:;]/, $ENV{PATH} || '' ) {
+        my $path = File::Spec->catfile( $dir, $candidate );
+        return $path if -x $path;
+    }
+    return;
+}
+
+sub _run_command {
+    my (@cmd) = @_;
+    system(@cmd);
+    die "Command failed: @cmd\n" if $? != 0;
+    return 1;
+}
+
+sub _run_osascript {
+    my ( $script, @args ) = @_;
+    open my $osa, '|-', 'osascript', '-', @args or die "Could not run osascript: $!\n";
+    print {$osa} $script;
+    close $osa or die "AppleScript conversion failed\n";
+    return 1;
+}
+
+sub _run_powershell {
+    my ( $binary, $script, @args ) = @_;
+    system( $binary, '-NoProfile', '-NonInteractive', '-Command', $script, @args );
+    die "PowerShell conversion failed\n" if $? != 0;
+    return 1;
 }
 
 1;

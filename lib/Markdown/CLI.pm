@@ -99,6 +99,9 @@ Usage: dashboard markdown.convert <source> [target]
 
 Examples:
   dashboard markdown.convert notes.md notes.pdf
+  dashboard markdown.convert report.docx
+  dashboard markdown.convert report.docx report.pdf
+  dashboard markdown.convert scan.pdf scan.docx
   dashboard markdown.convert notes.md notes.pdf --paper A3 --landscape
   dashboard markdown.convert notes.md notes.pdf --paper ANSI-D
   dashboard markdown.convert notes.md notes.pdf --paper DL
