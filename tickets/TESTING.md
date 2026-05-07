@@ -101,3 +101,27 @@ docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-tes
 - Cleanup:
   - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'rm -rf /workspace/skills/markdown/cover_db'`
   - Result: pass
+
+## Latest Verification For `DD-073`
+
+- Functional test:
+  - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && cpanm --quiet --notest --installdeps . && rm -rf cover_db && prove -lr t'`
+  - Result: pass
+  - Test count: `Files=6, Tests=279`
+- Coverage test:
+  - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && cpanm --quiet --notest --installdeps . && cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t && cover -report text -select_re "^lib/" -coverage statement -coverage subroutine && rm -rf cover_db'`
+  - Result: pass
+  - Coverage: `100.0%` statement and `100.0%` subroutine for `lib/Markdown/CLI.pm`, `lib/Markdown/Enhancer.pm`, and `lib/Markdown/Runner.pm`
+- Proven route selection:
+  - `dashboard markdown.convert report.docx`
+  - Result: proven by Docker tests, defaults to sibling `report.md`
+  - `dashboard markdown.convert report.docx report.md`
+  - Result: proven by Docker tests, keeps explicit markdown output path
+  - `dashboard markdown.convert notes.md notes.docx`
+  - Result: proven by Docker tests, routes markdown to explicit `.docx` output
+- Proven chaining:
+  - `.docx -> .md` chains through docx-to-pdf and pdf-to-markdown
+  - `.md -> .docx` chains through markdown-to-pdf and pdf-to-docx
+- Cleanup:
+  - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'rm -rf /workspace/skills/markdown/cover_db'`
+  - Result: pass

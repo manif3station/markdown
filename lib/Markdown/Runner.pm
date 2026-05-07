@@ -6,6 +6,7 @@ use warnings;
 use File::Basename qw(fileparse);
 use File::Spec;
 use Cwd qw(abs_path);
+use File::Temp qw(tempdir);
 
 use Markdown::Enhancer;
 
@@ -88,8 +89,14 @@ sub convert {
     elsif ( $source_format eq 'docx' && $target_format eq 'pdf' ) {
         $self->_docx_to_pdf( $from, $output_path );
     }
+    elsif ( $source_format eq 'docx' && $target_format eq 'markdown' ) {
+        $self->_docx_to_markdown( $from, $output_path );
+    }
     elsif ( $source_format eq 'pdf' && $target_format eq 'docx' ) {
         $self->_pdf_to_docx( $from, $output_path );
+    }
+    elsif ( $source_format eq 'markdown' && $target_format eq 'docx' ) {
+        $self->_markdown_to_docx( $from, $output_path );
     }
     else {
         die "Unsupported conversion route: $source_format -> $target_format\n";
@@ -157,6 +164,7 @@ sub _target_format_for {
               if ( ( defined $paper && $paper ne '' ) || $landscape || $portrait ) && $ext ne '.pdf';
             return 'pdf'  if $ext eq '.pdf';
             return 'html' if $ext eq '.html' || $ext eq '.htm';
+            return 'docx' if $ext eq '.docx';
             die "Markdown source needs --pdf/--to-pdf, --html/--to-html, or a .pdf/.html output path\n";
         }
         die "PDF layout flags are only valid for PDF output\n"
@@ -167,14 +175,15 @@ sub _target_format_for {
     if ( $source_format eq 'docx' ) {
         die "PDF layout flags are only valid for markdown to PDF output\n"
           if ( defined $paper && $paper ne '' ) || $landscape || $portrait;
-        die "DOCX source can only convert to pdf\n" if $to_html;
+        die "DOCX source can only convert to markdown or pdf\n" if $to_html;
         return 'pdf' if $to_pdf;
         if ( defined $to && $to ne '' ) {
             my $ext = lc( ( fileparse( $to, qr/\.[^.]*/ ) )[2] || '' );
-            return 'pdf' if $ext eq '.pdf' || $ext eq '';
-            die "DOCX source can only convert to pdf\n";
+            return 'pdf'      if $ext eq '.pdf';
+            return 'markdown' if $ext eq '.md' || $ext eq '.markdown' || $ext eq '';
+            die "DOCX source can only convert to markdown or pdf\n";
         }
-        return 'pdf';
+        return 'markdown';
     }
 
     die "HTML source can only convert to markdown\n" if $source_format eq 'html' && ( $to_pdf || $to_html );
@@ -278,6 +287,24 @@ sub _pdf_to_docx {
         return $self->{pdf_to_docx}->( $from, $to );
     }
     return $self->_default_pdf_to_docx( $from, $to );
+}
+
+sub _docx_to_markdown {
+    my ( $self, $from, $to ) = @_;
+    $self->_log("step=docx_to_markdown.chain");
+    my $tmpdir = tempdir( CLEANUP => 1 );
+    my $intermediate = File::Spec->catfile( $tmpdir, 'intermediate.pdf' );
+    $self->_docx_to_pdf( $from, $intermediate );
+    return $self->_pdf_to_markdown( $intermediate, $to );
+}
+
+sub _markdown_to_docx {
+    my ( $self, $from, $to ) = @_;
+    $self->_log("step=markdown_to_docx.chain");
+    my $tmpdir = tempdir( CLEANUP => 1 );
+    my $intermediate = File::Spec->catfile( $tmpdir, 'intermediate.pdf' );
+    $self->_markdown_to_pdf( $from, $intermediate, $self->_pdf_layout() );
+    return $self->_pdf_to_docx( $intermediate, $to );
 }
 
 sub _read_text {

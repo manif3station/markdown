@@ -68,7 +68,7 @@ dashboard markdown.convert notes.md notes.pdf -A 10
 
 That path is proven against the real generated PDF page box. The generated file reports `1191 x 842 pts (A3)` in `pdfinfo`.
 
-DOCX to PDF with the same basename:
+DOCX to markdown with the same basename:
 
 ```bash
 dashboard markdown.convert report.docx
@@ -78,6 +78,12 @@ DOCX to PDF with an explicit target:
 
 ```bash
 dashboard markdown.convert report.docx report.pdf
+```
+
+DOCX to markdown with an explicit target:
+
+```bash
+dashboard markdown.convert report.docx report.md
 ```
 
 Markdown to html:
@@ -121,6 +127,12 @@ PDF to DOCX with an explicit target:
 dashboard markdown.convert scan.pdf scan.docx
 ```
 
+Markdown to DOCX with an explicit target:
+
+```bash
+dashboard markdown.convert notes.md notes.docx
+```
+
 Legacy flag syntax still works:
 
 ```bash
@@ -130,12 +142,13 @@ dashboard markdown.convert --from notes.md --html --to notes.html
 ## Output Naming Rules
 
 - when the target path is omitted for html or pdf input, the skill reuses the source basename and changes only the extension to `.md`
-- when the target path is omitted for docx input, the skill reuses the source basename and changes only the extension to `.pdf`
+- when the target path is omitted for docx input, the skill reuses the source basename and changes only the extension to `.md`
 - when `--to` is present without the final output suffix, the skill appends the right one
 - markdown input requires a target filename ending in `.pdf` or `.html`, or the legacy `--pdf`/`--html` flags
 - html and pdf input default to markdown output
 - pdf input can target `.docx` explicitly
-- docx input always targets `.pdf`
+- docx input defaults to markdown and can target `.pdf` explicitly
+- markdown input can target `.docx` explicitly
 
 ## PDF Layout Controls
 
@@ -158,7 +171,9 @@ dashboard markdown.convert --from notes.md --html --to notes.html
 ## Office Route Notes
 
 - docx-to-pdf uses the host Office backend, not `PDF::API2`
+- docx-to-markdown chains through docx-to-pdf and pdf-to-markdown
 - Linux requires LibreOffice / `soffice`
 - macOS prefers Microsoft Word automation for docx-to-pdf and can fall back to LibreOffice
 - Windows prefers Microsoft Word automation through PowerShell COM and can fall back to LibreOffice
 - pdf-to-docx uses LibreOffice on Linux and macOS, and Word or LibreOffice on Windows
+- markdown-to-docx chains through markdown-to-pdf and pdf-to-docx

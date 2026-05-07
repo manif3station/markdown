@@ -1,5 +1,10 @@
 Revision history for markdown
 
+0.14 2026-05-07
+    - changed `.docx` input with no target to recover sibling markdown by default
+    - added explicit `.docx` to `.md` and `.md` to `.docx` routes
+    - implemented the new office-document markdown routes by chaining through the existing PDF backends
+
 0.13 2026-05-07
     - added `.docx` to `.pdf` routing to `dashboard markdown.convert`
     - added explicit `.pdf` to `.docx` routing when the target path ends in `.docx`

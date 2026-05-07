@@ -19,8 +19,10 @@ This skill adds a CLI converter that:
 - turns markdown into html
 - turns markdown into pdf
 - turns docx into pdf
+- turns markdown into docx
 - turns html into markdown
 - turns pdf into markdown
+- turns docx into markdown
 - turns pdf into docx when the target path ends in `.docx`
 - keeps markdown/html/pdf routes on Perl modules
 - uses host Office backends for docx/pdf routes:
@@ -142,7 +144,7 @@ The resulting pdf now strips raw pipe-table syntax and backticks instead of prin
 For markdown tables, the pdf renderer now draws table cell structure instead of collapsing the table into plain paragraph text.
 Long table values such as class names, test filenames, and status text are now wrapped inside the same cell instead of spilling into adjacent columns.
 
-Convert docx to pdf with the same basename:
+Convert docx back to markdown with the same basename:
 
 ```bash
 dashboard markdown.convert report.docx
@@ -152,6 +154,12 @@ Convert docx to pdf with an explicit output path:
 
 ```bash
 dashboard markdown.convert report.docx report.pdf
+```
+
+Convert docx to markdown with an explicit output path:
+
+```bash
+dashboard markdown.convert report.docx report.md
 ```
 
 Convert html back to markdown with the same basename:
@@ -170,6 +178,12 @@ Convert pdf to docx with an explicit output path:
 
 ```bash
 dashboard markdown.convert scan.pdf scan.docx
+```
+
+Convert markdown to docx with an explicit output path:
+
+```bash
+dashboard markdown.convert notes.md notes.docx
 ```
 
 Convert markdown to html with the legacy flag path:
@@ -213,11 +227,19 @@ Use html or pdf as the only positional source argument when you want markdown ba
 ```
 
 ```text
-Use a `.docx` source when you want a `.pdf` output from an office document. If no target is given, the skill reuses the basename and writes a sibling `.pdf`.
+Use a `.docx` source with no target when you want markdown recovered from an office document. The skill reuses the basename and writes a sibling `.md`.
+```
+
+```text
+Use a `.docx` source with a `.pdf` target when you want a shareable PDF output from an office document.
 ```
 
 ```text
 Use a `.pdf` source with a `.docx` target when you want office-document output instead of markdown recovery.
+```
+
+```text
+Use a markdown source with a `.docx` target when you want office-document output through the existing PDF and office backends.
 ```
 
 ## Edge Cases
@@ -235,7 +257,7 @@ If html or pdf is the source, only markdown output is supported.
 ```
 
 ```text
-If the source is `.docx`, only `.pdf` output is supported.
+If the source is `.docx`, only markdown and `.pdf` output are supported.
 ```
 
 ```text

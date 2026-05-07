@@ -71,8 +71,32 @@ my $runner = Markdown::Runner->new(
 
     my $result = $runner->convert( from => $from );
     is( $result->{source_format}, 'docx', 'docx source is detected' );
-    is( $result->{target_format}, 'pdf', 'docx defaults to pdf output' );
-    is( $result->{to}, File::Spec->catfile( $tmp, 'report.pdf' ), 'docx source defaults to sibling pdf output' );
+    is( $result->{target_format}, 'markdown', 'docx defaults to markdown output' );
+    is( $result->{to}, File::Spec->catfile( $tmp, 'report.md' ), 'docx source defaults to sibling markdown output' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $result = $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'report.pdf' ) );
+    is( $result->{target_format}, 'pdf', 'docx still targets pdf explicitly when the output path ends in .pdf' );
+    is( $result->{to}, File::Spec->catfile( $tmp, 'report.pdf' ), 'docx keeps the explicit pdf output path' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $result = $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'report.md' ) );
+    is( $result->{target_format}, 'markdown', 'docx can target markdown explicitly' );
+    is( $result->{to}, File::Spec->catfile( $tmp, 'report.md' ), 'docx keeps the explicit markdown output path' );
 }
 
 {
@@ -95,8 +119,8 @@ my $runner = Markdown::Runner->new(
     close $fh or die "Unable to close $from: $!";
 
     my $error = eval { $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'report.html' ) ); 1 };
-    ok( !$error, 'docx rejects non-pdf targets' );
-    like( $@, qr/^DOCX source can only convert to pdf/, 'docx reports the allowed target clearly' );
+    ok( !$error, 'docx rejects non-pdf non-markdown targets' );
+    like( $@, qr/^DOCX source can only convert to markdown or pdf/, 'docx reports the allowed targets clearly' );
 }
 
 {
@@ -711,6 +735,96 @@ my $runner = Markdown::Runner->new(
     my $error = eval { $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'bad.pdf' ) ); 1 };
     ok( !$error, 'html source rejects non-markdown output extensions' );
     like( $@, qr/^Only markdown output is supported for html input/, 'html source explains the allowed output type' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $result = $runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'note.docx' ) );
+    is( $result->{target_format}, 'docx', 'markdown can target docx explicitly' );
+    is( $result->{to}, File::Spec->catfile( $tmp, 'note.docx' ), 'markdown keeps the explicit docx output path' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my @steps;
+    my $chain_runner = Markdown::Runner->new(
+        markdown_to_html => sub { return "<html><body>ignored</body></html>\n" },
+        markdown_to_pdf  => sub { die "markdown to pdf should not be used here\n" },
+        html_to_markdown => sub { die "html to markdown should not be used here\n" },
+        pdf_to_markdown  => sub {
+            my ($pdf_path) = @_;
+            push @steps, [ pdf_to_markdown => $pdf_path ];
+            return "# recovered\n";
+        },
+        docx_to_pdf      => sub {
+            my ( $in, $pdf_path ) = @_;
+            push @steps, [ docx_to_pdf => $pdf_path ];
+            open my $pdf, '>', $pdf_path or die "Unable to write $pdf_path: $!";
+            print {$pdf} "PDF from DOCX\n";
+            close $pdf or die "Unable to close $pdf_path: $!";
+            return 1;
+        },
+    );
+
+    my $result = $chain_runner->convert( from => $from );
+    is( $result->{target_format}, 'markdown', 'docx chaining route reports markdown output' );
+    is_deeply(
+        [ map { $_->[0] } @steps ],
+        [ 'docx_to_pdf', 'pdf_to_markdown' ],
+        'docx to markdown chains through docx to pdf and pdf to markdown'
+    );
+    my $markdown = $chain_runner->_read_text( $result->{to} );
+    is( $markdown, "# recovered\n", 'docx to markdown writes the recovered markdown output' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my @steps;
+    my $chain_runner = Markdown::Runner->new(
+        markdown_to_html => sub { return "<html><body>ignored</body></html>\n" },
+        markdown_to_pdf  => sub {
+            my ( $markdown, $pdf_path ) = @_;
+            push @steps, [ markdown_to_pdf => $pdf_path, $markdown ];
+            open my $pdf, '>', $pdf_path or die "Unable to write $pdf_path: $!";
+            print {$pdf} "PDF from markdown\n";
+            close $pdf or die "Unable to close $pdf_path: $!";
+            return 1;
+        },
+        html_to_markdown => sub { die "html to markdown should not be used here\n" },
+        pdf_to_markdown  => sub { die "pdf to markdown should not be used here\n" },
+        pdf_to_docx      => sub {
+            my ( $pdf_path, $docx_path ) = @_;
+            push @steps, [ pdf_to_docx => $pdf_path, $docx_path ];
+            open my $docx, '>', $docx_path or die "Unable to write $docx_path: $!";
+            print {$docx} "DOCX from PDF\n";
+            close $docx or die "Unable to close $docx_path: $!";
+            return 1;
+        },
+    );
+
+    my $result = $chain_runner->convert( from => $from, to => File::Spec->catfile( $tmp, 'note.docx' ) );
+    is( $result->{target_format}, 'docx', 'markdown chaining route reports docx output' );
+    is_deeply(
+        [ map { $_->[0] } @steps ],
+        [ 'markdown_to_pdf', 'pdf_to_docx' ],
+        'markdown to docx chains through markdown to pdf and pdf to docx'
+    );
+    ok( -f $result->{to}, 'markdown to docx writes the chained docx output' );
 }
 
 {

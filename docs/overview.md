@@ -9,8 +9,10 @@ The current supported routes are:
 - markdown to html
 - markdown to pdf
 - docx to pdf
+- markdown to docx
 - html to markdown
 - pdf to markdown
+- docx to markdown
 - pdf to docx
 
 The skill uses Perl modules for the markdown/html/pdf routes:
@@ -41,7 +43,9 @@ The preferred interface is positional:
 - `dashboard markdown.convert source.md target.pdf`
 - `dashboard markdown.convert source.md target.pdf --paper A3 --landscape`
 - `dashboard markdown.convert source.md target.html`
+- `dashboard markdown.convert source.md target.docx`
 - `dashboard markdown.convert source.docx`
+- `dashboard markdown.convert source.docx target.md`
 - `dashboard markdown.convert source.docx target.pdf`
 - `dashboard markdown.convert source.html`
 - `dashboard markdown.convert source.pdf`
@@ -62,4 +66,4 @@ For PDF output, the skill supports:
 
 Portrait is the default orientation.
 
-The layout settings are applied to the real generated PDF page size. Current proofs cover A3 landscape on Linux and macOS for markdown-to-pdf. The DOCX/PDF office routes are proven through backend-selection tests for Linux, macOS, and Windows.
+The layout settings are applied to the real generated PDF page size. Current proofs cover A3 landscape on Linux and macOS for markdown-to-pdf. The DOCX/PDF office routes and the chained `.docx <-> .md` plus `.md -> .docx` routes are proven through Docker tests and backend-selection tests for Linux, macOS, and Windows code paths.

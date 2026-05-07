@@ -49,9 +49,89 @@ use Markdown::Runner;
 
     is( $exit, 0, 'docx to pdf flow exits successfully' );
     like( $stdout, qr/"source_format":"docx"/, 'docx to pdf reports the source format as json' );
-    like( $stdout, qr/"target_format":"pdf"/, 'docx to pdf reports the target format as json' );
-    like( $stderr, qr/\[markdown\] step=docx_to_pdf\.platform/, 'docx to pdf logs the platform conversion step' );
-    ok( -f File::Spec->catfile( $tmp, 'report.pdf' ), 'docx to pdf flow creates the default sibling pdf file' );
+    like( $stdout, qr/"target_format":"markdown"/, 'docx to markdown default reports the target format as json' );
+    like( $stderr, qr/\[markdown\] step=docx_to_markdown\.chain/, 'docx to markdown default logs the chain conversion step' );
+    ok( -f File::Spec->catfile( $tmp, 'report.md' ), 'docx default flow creates the sibling markdown file' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    my $to   = File::Spec->catfile( $tmp, 'report.pdf' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $stdout = '';
+    my $stderr = '';
+    open my $out, '>', \$stdout or die "Unable to open stdout scalar: $!";
+    open my $err, '>', \$stderr or die "Unable to open stderr scalar: $!";
+    local *STDOUT = $out;
+    local *STDERR = $err;
+
+    my $exit = Markdown::CLI::main(
+        argv   => [ $from, $to ],
+        runner => Markdown::Runner->new(
+            markdown_to_html => sub { return "<html></html>\n" },
+            markdown_to_pdf  => sub { return 1 },
+            html_to_markdown => sub { return "# hello\n" },
+            pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+            docx_to_pdf      => sub {
+                my ( $in, $pdf_path ) = @_;
+                open my $pdf, '>', $pdf_path or die "Unable to write $pdf_path: $!";
+                print {$pdf} "PDF from DOCX\n";
+                close $pdf or die "Unable to close $pdf_path: $!";
+                return 1;
+            },
+            pdf_to_docx      => sub { return 1 },
+            logger           => sub { print STDERR "[markdown] $_[0]\n" },
+        ),
+    );
+
+    is( $exit, 0, 'docx to explicit pdf flow exits successfully' );
+    like( $stdout, qr/"target_format":"pdf"/, 'docx to explicit pdf reports the target format as json' );
+    like( $stderr, qr/\[markdown\] step=docx_to_pdf\.platform/, 'docx to explicit pdf logs the platform conversion step' );
+    ok( -f $to, 'docx to explicit pdf flow creates the expected pdf file' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'report.docx' );
+    my $to   = File::Spec->catfile( $tmp, 'report.md' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "fake docx\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $stdout = '';
+    my $stderr = '';
+    open my $out, '>', \$stdout or die "Unable to open stdout scalar: $!";
+    open my $err, '>', \$stderr or die "Unable to open stderr scalar: $!";
+    local *STDOUT = $out;
+    local *STDERR = $err;
+
+    my $exit = Markdown::CLI::main(
+        argv   => [ $from, $to ],
+        runner => Markdown::Runner->new(
+            markdown_to_html => sub { return "<html></html>\n" },
+            markdown_to_pdf  => sub { return 1 },
+            html_to_markdown => sub { return "# hello\n" },
+            pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+            docx_to_pdf      => sub {
+                my ( $in, $pdf_path ) = @_;
+                open my $pdf, '>', $pdf_path or die "Unable to write $pdf_path: $!";
+                print {$pdf} "PDF from DOCX\n";
+                close $pdf or die "Unable to close $pdf_path: $!";
+                return 1;
+            },
+            pdf_to_docx      => sub { return 1 },
+            logger           => sub { print STDERR "[markdown] $_[0]\n" },
+        ),
+    );
+
+    is( $exit, 0, 'docx to explicit markdown flow exits successfully' );
+    like( $stdout, qr/"target_format":"markdown"/, 'docx to explicit markdown reports the target format as json' );
+    like( $stderr, qr/\[markdown\] step=docx_to_markdown\.chain/, 'docx to explicit markdown logs the chain conversion step' );
+    ok( -f $to, 'docx to explicit markdown flow creates the expected markdown file' );
 }
 
 {
@@ -92,6 +172,52 @@ use Markdown::Runner;
     like( $stdout, qr/"target_format":"docx"/, 'pdf to docx reports the target format as json' );
     like( $stderr, qr/\[markdown\] step=pdf_to_docx\.platform/, 'pdf to docx logs the platform conversion step' );
     ok( -f $to, 'pdf to docx flow creates the expected docx file' );
+}
+
+{
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $from = File::Spec->catfile( $tmp, 'note.md' );
+    my $to   = File::Spec->catfile( $tmp, 'note.docx' );
+    open my $fh, '>', $from or die "Unable to write $from: $!";
+    print {$fh} "# hello\n";
+    close $fh or die "Unable to close $from: $!";
+
+    my $stdout = '';
+    my $stderr = '';
+    open my $out, '>', \$stdout or die "Unable to open stdout scalar: $!";
+    open my $err, '>', \$stderr or die "Unable to open stderr scalar: $!";
+    local *STDOUT = $out;
+    local *STDERR = $err;
+
+    my $exit = Markdown::CLI::main(
+        argv   => [ $from, $to ],
+        runner => Markdown::Runner->new(
+            markdown_to_html => sub { return "<html></html>\n" },
+            markdown_to_pdf  => sub {
+                my ( $markdown, $pdf_path ) = @_;
+                open my $pdf, '>', $pdf_path or die "Unable to write $pdf_path: $!";
+                print {$pdf} "PDF\n$markdown";
+                close $pdf or die "Unable to close $pdf_path: $!";
+                return 1;
+            },
+            html_to_markdown => sub { return "# hello\n" },
+            pdf_to_markdown  => sub { return "Recovered from PDF\n"; },
+            docx_to_pdf      => sub { return 1 },
+            pdf_to_docx      => sub {
+                my ( $pdf_path, $docx_path ) = @_;
+                open my $docx, '>', $docx_path or die "Unable to write $docx_path: $!";
+                print {$docx} "DOCX from PDF\n";
+                close $docx or die "Unable to close $docx_path: $!";
+                return 1;
+            },
+            logger           => sub { print STDERR "[markdown] $_[0]\n" },
+        ),
+    );
+
+    is( $exit, 0, 'markdown to docx flow exits successfully' );
+    like( $stdout, qr/"target_format":"docx"/, 'markdown to docx reports the target format as json' );
+    like( $stderr, qr/\[markdown\] step=markdown_to_docx\.chain/, 'markdown to docx logs the chain conversion step' );
+    ok( -f $to, 'markdown to docx flow creates the expected docx file' );
 }
 
 {
