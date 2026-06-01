@@ -45,16 +45,10 @@ This skill adds a CLI command:
 
 ## Installation
 
-Install from the skill repo:
+Install the skill into Developer Dashboard by repo name:
 
 ```bash
-dashboard skills install git@github.mf:manif3station/markdown.git
-```
-
-For local development in this workspace:
-
-```bash
-dashboard skills install ~/projects/skills/skills/markdown
+dashboard skills install markdown
 ```
 
 ## License
