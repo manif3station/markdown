@@ -278,39 +278,57 @@ my $runner = Markdown::Runner->new(
 
     $linux_runner->_docx_to_pdf( $from, $to );
     is_deeply(
-        \@cmd,
-        [ '/usr/bin/soffice', '--headless', '--convert-to', 'pdf', '--outdir', $tmp, abs_path($from) ],
+        [ @cmd[ 0 .. 4 ] ],
+        [ '/usr/bin/soffice', '--headless', '--convert-to', 'pdf', '--outdir' ],
         'linux docx to pdf uses soffice conversion'
     );
+    # soffice converts into a dedicated scratch directory, not the real
+    # output directory, so a stale file at the source's basename can never
+    # be clobbered and then renamed over the caller's actual target.
+    isnt( $cmd[5], $tmp, 'linux docx to pdf converts into an isolated scratch directory, not the real output directory' );
+    is( $cmd[6], abs_path($from), 'linux docx to pdf passes the absolute source path' );
 }
 
 {
+    # LibreOffice can't do this on any platform: soffice always imports a PDF
+    # as a Draw document, and Draw has no export filter to DOCX ("no export
+    # filter for ... found, aborting" - verified against a real soffice
+    # binary). So pdf-to-docx must never shell out to soffice; it uses the
+    # pure-Perl extractor + docx writer instead, regardless of what
+    # find_binary/run_command report.
     my $tmp = tempdir( CLEANUP => 1 );
     my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
     my $to   = File::Spec->catfile( $tmp, 'scan.docx' );
     my @cmd;
+    my @seen;
     open my $fh, '>', $from or die "Unable to write $from: $!";
     print {$fh} "%PDF fake\n";
     close $fh or die "Unable to close $from: $!";
 
+    no warnings 'redefine';
+    local *Markdown::Runner::_default_pdf_to_markdown = sub { push @seen, [ 'extract', @_ ]; return "Recovered\n" };
+    local *Markdown::Runner::_default_markdown_to_docx = sub {
+        push @seen, [ 'write', @_ ];
+        open my $out, '>', $_[1] or die "Unable to write $_[1]: $!";
+        print {$out} "docx\n";
+        close $out or die "Unable to close $_[1]: $!";
+        return 1;
+    };
+
     my $linux_runner = Markdown::Runner->new(
         platform     => 'linux',
         find_binary  => sub { return '/usr/bin/soffice' if $_[0] eq 'soffice'; return; },
-        run_command  => sub {
-            @cmd = @_;
-            open my $out, '>', $to or die "Unable to write $to: $!";
-            print {$out} "DOCX\n";
-            close $out or die "Unable to close $to: $!";
-            return 1;
-        },
+        run_command  => sub { @cmd = @_; return 1 },
     );
 
     $linux_runner->_pdf_to_docx( $from, $to );
+    is_deeply( \@cmd, [], 'linux pdf to docx never shells out to soffice' );
     is_deeply(
-        \@cmd,
-        [ '/usr/bin/soffice', '--headless', '--convert-to', 'docx', '--outdir', $tmp, abs_path($from) ],
-        'linux pdf to docx uses soffice conversion'
+        [ map { $_->[0] } @seen ],
+        [ 'extract', 'write' ],
+        'linux pdf to docx uses the pure-Perl extractor and docx writer'
     );
+    ok( -f $to, 'linux pdf to docx creates the output file' );
 }
 
 {
@@ -461,15 +479,28 @@ my $runner = Markdown::Runner->new(
 }
 
 {
+    # No Office backend of any kind is required for pdf-to-docx any more, on
+    # any platform, since the pure-Perl writer replaced the (always-broken)
+    # LibreOffice route.
     my $tmp = tempdir( CLEANUP => 1 );
     my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
+    my $to   = File::Spec->catfile( $tmp, 'scan.docx' );
     open my $fh, '>', $from or die "Unable to write $from: $!";
     print {$fh} "%PDF fake\n";
     close $fh or die "Unable to close $from: $!";
 
-    my $error = eval { Markdown::Runner->new( platform => 'darwin', find_binary => sub { return; } )->_pdf_to_docx( $from, File::Spec->catfile( $tmp, 'scan.docx' ) ); 1 };
-    ok( !$error, 'mac pdf to docx fails clearly when LibreOffice is missing' );
-    like( $@, qr/^PDF to DOCX on macOS requires LibreOffice/, 'mac pdf to docx missing-backend error is explicit' );
+    no warnings 'redefine';
+    local *Markdown::Runner::_default_pdf_to_markdown = sub { return "Recovered\n" };
+    local *Markdown::Runner::_default_markdown_to_docx = sub {
+        open my $out, '>', $_[1] or die "Unable to write $_[1]: $!";
+        print {$out} "docx\n";
+        close $out or die "Unable to close $_[1]: $!";
+        return 1;
+    };
+
+    my $error = eval { Markdown::Runner->new( platform => 'darwin', find_binary => sub { return; } )->_pdf_to_docx( $from, $to ); 1 };
+    ok( $error, 'mac pdf to docx succeeds without any Office backend' ) or diag $@;
+    ok( -f $to, 'mac pdf to docx creates the output file' );
 }
 
 {
@@ -481,6 +512,15 @@ my $runner = Markdown::Runner->new(
     print {$fh} "%PDF fake\n";
     close $fh or die "Unable to close $from: $!";
 
+    no warnings 'redefine';
+    local *Markdown::Runner::_default_pdf_to_markdown = sub { return "Recovered\n" };
+    local *Markdown::Runner::_default_markdown_to_docx = sub {
+        open my $out, '>', $_[1] or die "Unable to write $_[1]: $!";
+        print {$out} "docx\n";
+        close $out or die "Unable to close $_[1]: $!";
+        return 1;
+    };
+
     my $windows_runner = Markdown::Runner->new(
         platform    => 'MSWin32',
         find_binary => sub { return 'C:\\LibreOffice\\soffice.exe' if $_[0] =~ /LibreOffice/; return; },
@@ -489,40 +529,57 @@ my $runner = Markdown::Runner->new(
     local *Markdown::Runner::_libreoffice_convert = sub { @cmd = @_; return 1 };
 
     $windows_runner->_default_pdf_to_docx( $from, $to );
-    is_deeply(
-        \@cmd,
-        [ $windows_runner, $from, $to, 'docx' ],
-        'windows pdf to docx falls back to LibreOffice when Word is unavailable'
-    );
+    is_deeply( \@cmd, [], 'windows pdf to docx does not fall back to LibreOffice when Word is unavailable' );
+    ok( -f $to, 'windows pdf to docx creates the output file via the pure-Perl writer' );
 }
 
 {
     my $tmp = tempdir( CLEANUP => 1 );
     my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
+    my $to   = File::Spec->catfile( $tmp, 'scan.docx' );
     open my $fh, '>', $from or die "Unable to write $from: $!";
     print {$fh} "%PDF fake\n";
     close $fh or die "Unable to close $from: $!";
+
+    no warnings 'redefine';
+    local *Markdown::Runner::_default_pdf_to_markdown = sub { return "Recovered\n" };
+    local *Markdown::Runner::_default_markdown_to_docx = sub {
+        open my $out, '>', $_[1] or die "Unable to write $_[1]: $!";
+        print {$out} "docx\n";
+        close $out or die "Unable to close $_[1]: $!";
+        return 1;
+    };
 
     my $windows_runner = Markdown::Runner->new(
         platform    => 'MSWin32',
         find_binary => sub { return; },
     );
     local *Markdown::Runner::_windows_word_available = sub { return 0 };
-    my $error = eval { $windows_runner->_default_pdf_to_docx( $from, File::Spec->catfile( $tmp, 'scan.docx' ) ); 1 };
-    ok( !$error, 'windows pdf to docx fails clearly when neither Word nor LibreOffice is available' );
-    like( $@, qr/^PDF to DOCX on Windows requires Microsoft Word or LibreOffice/, 'windows pdf to docx missing-backend error is explicit' );
+    my $error = eval { $windows_runner->_default_pdf_to_docx( $from, $to ); 1 };
+    ok( $error, 'windows pdf to docx succeeds even when neither Word nor LibreOffice is available' ) or diag $@;
+    ok( -f $to, 'windows pdf to docx creates the output file' );
 }
 
 {
     my $tmp = tempdir( CLEANUP => 1 );
     my $from = File::Spec->catfile( $tmp, 'scan.pdf' );
+    my $to   = File::Spec->catfile( $tmp, 'scan.docx' );
     open my $fh, '>', $from or die "Unable to write $from: $!";
     print {$fh} "%PDF fake\n";
     close $fh or die "Unable to close $from: $!";
 
-    my $error = eval { Markdown::Runner->new( platform => 'linux', find_binary => sub { return; } )->_default_pdf_to_docx( $from, File::Spec->catfile( $tmp, 'scan.docx' ) ); 1 };
-    ok( !$error, 'linux pdf to docx fails clearly when LibreOffice is missing' );
-    like( $@, qr/^PDF to DOCX on Linux requires LibreOffice or soffice/, 'linux pdf to docx missing-backend error is explicit' );
+    no warnings 'redefine';
+    local *Markdown::Runner::_default_pdf_to_markdown = sub { return "Recovered\n" };
+    local *Markdown::Runner::_default_markdown_to_docx = sub {
+        open my $out, '>', $_[1] or die "Unable to write $_[1]: $!";
+        print {$out} "docx\n";
+        close $out or die "Unable to close $_[1]: $!";
+        return 1;
+    };
+
+    my $error = eval { Markdown::Runner->new( platform => 'linux', find_binary => sub { return; } )->_default_pdf_to_docx( $from, $to ); 1 };
+    ok( $error, 'linux pdf to docx succeeds when LibreOffice is missing' ) or diag $@;
+    ok( -f $to, 'linux pdf to docx creates the output file' );
 }
 
 {
@@ -1165,20 +1222,111 @@ MARKDOWN
 }
 
 {
+    # PDF::API2's $text->translate($x, $y) - the call this module itself uses
+    # to lay out generated PDFs - emits an absolute Tm text matrix, not the
+    # relative Td/TD operator CAM::PDF::PageText looks for. A mock that only
+    # stubs getPageText (as this test used to) can't catch that, since it
+    # never exercises the real line-break heuristics at all. This mocks one
+    # level lower, at getPageContentTree, so the real _pdf_render_page_text
+    # walk (including its Tm handling) actually runs.
     no warnings 'redefine';
     no warnings 'once';
     local $INC{'CAM/PDF.pm'} = __FILE__;
     local *CAM::PDF::new      = sub { return bless {}, 'CAM::PDF' };
     local *CAM::PDF::numPages = sub { return 2 };
-    local *CAM::PDF::getPageText = sub {
+    local *CAM::PDF::getPageContent = sub { return; };
+    local *CAM::PDF::setPageContent = sub { return; };
+    local *CAM::PDF::getPageContentTree = sub {
         my ( $self, $page ) = @_;
-        return $page == 1 ? " page one \n\n" : "page two";
+        my $num = sub { return { type => 'number', value => $_[0] } };
+        my $str = sub { return { type => 'string', value => $_[0] } };
+        my $tm  = sub {
+            my ($y) = @_;
+            return {
+                type => 'op',
+                name => 'Tm',
+                args => [ $num->(1), $num->(0), $num->(0), $num->(1), $num->(50), $num->($y) ],
+            };
+        };
+        my $tj = sub { return { type => 'op', name => 'Tj', args => [ $str->( $_[0] ) ] }; };
+
+        if ( $page == 1 ) {
+            return {
+                blocks => [
+                    {
+                        type  => 'block',
+                        name  => 'BT',
+                        value => [ $tm->(800), $tj->('page one line one'), $tm->(780), $tj->('page one line two') ],
+                    },
+                ],
+            };
+        }
+        return { blocks => [ { type => 'block', name => 'BT', value => [ $tm->(800), $tj->('page two') ] } ] };
     };
 
     my $default_runner = Markdown::Runner->new;
     my $markdown = $default_runner->{pdf_to_markdown}->('stub.pdf');
-    like( $markdown, qr/page one/, 'default pdf to markdown path uses CAM::PDF' );
+    like( $markdown, qr/page one line one/, 'default pdf to markdown path uses CAM::PDF' );
     like( $markdown, qr/page two/, 'default pdf to markdown path keeps later page text' );
+    like(
+        $markdown,
+        qr/page one line one\npage one line two/,
+        'default pdf to markdown path breaks lines on the Tm text matrix operator PDF::API2 emits, not just Td/TD'
+    );
+}
+
+{
+    # Office producers commonly embed a subsetted font and remap its
+    # character codes, so Tj/TJ strings contain that font's internal codes,
+    # not readable text. A /ToUnicode CMap (beginbfchar/beginbfrange blocks)
+    # is how a PDF says what each code actually means.
+    my $cmap_text = <<'CMAP';
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+2 beginbfchar
+<01> <0052>
+<02> <0065>
+endbfchar
+1 beginbfrange
+<03> <04> <0061>
+endbfrange
+CMAP
+
+    my $parsed = Markdown::Runner::_pdf_parse_tounicode_cmap($cmap_text);
+    is( $parsed->{width}, 1, 'cmap parser derives the byte width from begincodespacerange' );
+    is( $parsed->{map}{ hex('01') }, 'R', 'bfchar entries decode to the right character' );
+    is( $parsed->{map}{ hex('02') }, 'e', 'a second bfchar entry decodes correctly' );
+    is( $parsed->{map}{ hex('03') }, 'a', 'bfrange start decodes correctly' );
+    is( $parsed->{map}{ hex('04') }, 'b', 'bfrange increments through to its end code' );
+
+    my $cmaps = { F1 => $parsed };
+    is( Markdown::Runner::_pdf_decode_font_bytes( "\x01\x02", $cmaps, 'F1' ), 'Re', 'font bytes decode through the cmap for the active font' );
+    is( Markdown::Runner::_pdf_decode_font_bytes( "\x01\x02", $cmaps, 'F9' ), "\x01\x02", 'bytes pass through unchanged for a font with no cmap entry' );
+    is( Markdown::Runner::_pdf_decode_font_bytes( "\x01\x02", {}, undef ), "\x01\x02", 'bytes pass through unchanged when there is no active font at all' );
+}
+
+{
+    # This exercises the same Tf-tracking + cmap-decoding integration that
+    # _default_pdf_to_markdown wires together, without needing to mock
+    # CAM::PDF's object graph (getPage/getValue/decodeOne) just to build a
+    # ToUnicode table - _pdf_render_page_text takes that table directly.
+    my $cmaps = { F1 => { width => 1, map => { 1 => 'H', 2 => 'i' } } };
+    my $tree = {
+        blocks => [
+            {
+                type  => 'block',
+                name  => 'BT',
+                value => [
+                    { type => 'op', name => 'Tf', args => [ { type => 'label', value => 'F1' }, { type => 'number', value => 12 } ] },
+                    { type => 'op', name => 'Tj', args => [ { type => 'hexstring', value => "\x01\x02" } ] },
+                ],
+            },
+        ],
+    };
+
+    my $text = Markdown::Runner::_pdf_render_page_text( $tree, $cmaps );
+    is( $text, "Hi\n", '_pdf_render_page_text decodes Tj bytes through the font selected by a preceding Tf' );
 }
 
 {

@@ -22,11 +22,13 @@ The skill uses Perl modules for the markdown/html/pdf routes:
 - `PDF::API2` for markdown to pdf
 - `CAM::PDF` for pdf to markdown
 
-For office-document routes, the skill uses host Office backends instead of pretending there is one pure-Perl DOCX/PDF engine that works everywhere:
+For docx-to-pdf, the skill uses host Office backends:
 
 - Linux uses LibreOffice / `soffice`
-- macOS uses Microsoft Word automation for docx-to-pdf when Word is installed, with LibreOffice fallback, and uses LibreOffice for pdf-to-docx
-- Windows uses Microsoft Word automation through PowerShell COM when Word is installed, with LibreOffice fallback
+- macOS prefers Microsoft Word automation when Word is installed, with LibreOffice fallback
+- Windows prefers Microsoft Word automation through PowerShell COM when Word is installed, with LibreOffice fallback
+
+For pdf-to-docx (and, by extension, markdown-to-docx, which chains through pdf-to-docx), the skill does *not* use LibreOffice: `soffice` always imports a PDF as a Draw document, and Draw documents have no export filter to DOCX, so `soffice --convert-to docx some.pdf` fails unconditionally with "no export filter ... aborting" on every platform. Instead the skill extracts text with the same `CAM::PDF`-based engine used for pdf-to-markdown and writes a real DOCX package directly with `Archive::Zip` - no Office backend required. Windows still prefers real Microsoft Word automation here when Word is installed, since Word can genuinely reflow a PDF into editable text on open.
 
 The skill also adds a local `Markdown::Enhancer` layer above those modules. That layer patches the parts the base stack is weak on:
 

@@ -7,6 +7,7 @@ use File::Basename qw(fileparse);
 use File::Spec;
 use Cwd qw(abs_path);
 use File::Temp qw(tempdir);
+use File::Copy qw(move);
 
 use Markdown::Enhancer;
 
@@ -369,19 +370,20 @@ sub _default_pdf_to_docx {
     $self->_ensure_output_dir($to);
     my $platform = $self->{platform} || '';
 
-    if ( $platform eq 'MSWin32' ) {
-        return $self->_word_windows_convert( $from, $to, 'docx' ) if $self->_windows_word_available;
-        return $self->_libreoffice_convert( $from, $to, 'docx' ) if $self->_soffice_binary;
-        die "PDF to DOCX on Windows requires Microsoft Word or LibreOffice\n";
-    }
+    # Microsoft Word can genuinely reflow a PDF into editable text on open,
+    # so prefer real Word automation when it's available.
+    return $self->_word_windows_convert( $from, $to, 'docx' )
+      if $platform eq 'MSWin32' && $self->_windows_word_available;
 
-    if ( $platform eq 'darwin' ) {
-        return $self->_libreoffice_convert( $from, $to, 'docx' ) if $self->_soffice_binary;
-        die "PDF to DOCX on macOS requires LibreOffice\n";
-    }
-
-    return $self->_libreoffice_convert( $from, $to, 'docx' ) if $self->_soffice_binary;
-    die "PDF to DOCX on Linux requires LibreOffice or soffice\n";
+    # LibreOffice cannot do this at all, on any platform: soffice always
+    # imports a PDF as a Draw document (there is no Writer-compatible PDF
+    # import filter), and Draw documents have no export filter to DOCX
+    # ("no export filter for ... found, aborting"). So instead of shelling
+    # out to a conversion that is guaranteed to fail, recover the text with
+    # the same pure-Perl extractor used for pdf-to-markdown and write a real
+    # DOCX package directly.
+    my $markdown = _default_pdf_to_markdown($from);
+    return _default_markdown_to_docx( $markdown, $to, $self->{enhancer} );
 }
 
 sub _default_markdown_to_pdf {
@@ -818,11 +820,18 @@ sub _text_width {
 sub _default_pdf_to_markdown {
     my ($from) = @_;
     require CAM::PDF;
-    my $pdf = CAM::PDF->new($from);
+    my $pdf = CAM::PDF->new($from)
+      or do {
+        no warnings 'once';
+        die 'Unable to read PDF: ' . ( $CAM::PDF::errstr || $from ) . "\n";
+      };
     my $pages = $pdf->numPages();
     my @chunks;
     for my $page ( 1 .. $pages ) {
-        my $text = $pdf->getPageText($page);
+        _pdf_strip_marked_content( $pdf, $page );
+        my $tree = $pdf->getPageContentTree($page);
+        my $cmaps = defined $tree ? _pdf_page_font_cmaps( $pdf, $page ) : {};
+        my $text = defined $tree ? _pdf_render_page_text( $tree, $cmaps ) : '';
         $text = '' if !defined $text;
         $text =~ s/\r\n?/\n/g;
         $text =~ s/[ \t]+\n/\n/g;
@@ -833,6 +842,438 @@ sub _default_pdf_to_markdown {
     my $markdown = join "\n\n", @chunks;
     $markdown .= "\n" if length $markdown;
     return $markdown;
+}
+
+# BDC/BMC ... EMC "marked content" operators tag spans of a page (for
+# accessibility structure trees, or "Artifact" spans such as a decorative
+# clip-path setup) and have no rendering effect of their own. Real-world
+# producers - LibreOffice's own PDF export included - routinely interleave
+# them with the q/Q graphics-state stack in ways that are fully valid PDF but
+# that CAM::PDF's single-stack block matcher cannot follow: it dies with
+# "Wrong block ending (expected 'Q', got 'EMC')" internally and
+# getPageContentTree silently returns undef for the whole page, which is
+# exactly why docx-to-markdown (which chains through a LibreOffice-rendered
+# intermediate PDF) was producing an empty file instead of an error. Since
+# marked-content tags carry no positioning or text of their own, stripping
+# them out of the raw content stream before parsing sidesteps the mismatch
+# without touching anything that affects layout or text.
+sub _pdf_strip_marked_content {
+    my ( $pdf, $page ) = @_;
+    my $raw = $pdf->getPageContent($page);
+    return if !defined $raw;
+
+    my $stripped = $raw;
+    $stripped =~ s{ /[A-Za-z0-9_.\#]+ \s* (?: <<(?:[^<>]|<<[^<>]*>>)*>> | /[A-Za-z0-9_.\#]+ )? \s* B(?:DC|MC) }{}gx;
+    $stripped =~ s{ \b EMC \b }{}gx;
+
+    $pdf->setPageContent( $page, $stripped ) if $stripped ne $raw;
+    return;
+}
+
+# Office producers (LibreOffice, Word, ...) commonly embed a subsetted font
+# and remap its character codes for smaller embedding size, so the bytes
+# inside Tj/TJ strings are just that font's internal codes - not ASCII, not
+# UTF-16, not anything CAM::PDF::PageText's plain byte-concatenation can turn
+# into real text. A subsetted font's /ToUnicode entry is exactly the CMap
+# that maps those codes back to real Unicode text; without consulting it, a
+# page like this decodes to unreadable control-character noise instead of
+# words. This resolves each page's fonts to their ToUnicode maps up front so
+# _pdf_render_page_text can translate codes through the font that was active
+# via Tf when each string was shown.
+sub _pdf_page_font_cmaps {
+    my ( $pdf, $page ) = @_;
+    my %cmaps;
+
+    my $page_obj  = eval { $pdf->getPage($page) };
+    my $resources = $page_obj && $page_obj->{Resources} ? eval { $pdf->getValue( $page_obj->{Resources} ) } : undef;
+    my $fonts     = $resources && $resources->{Font} ? eval { $pdf->getValue( $resources->{Font} ) } : undef;
+    return \%cmaps if !$fonts || ref $fonts ne 'HASH';
+
+    require CAM::PDF::Node;
+
+    for my $name ( keys %{$fonts} ) {
+        my $font = eval { $pdf->getValue( $fonts->{$name} ) };
+        next if !$font || ref $font ne 'HASH' || !$font->{ToUnicode};
+
+        my $cmap_text = eval {
+            my $dict = $pdf->getValue( $font->{ToUnicode} );
+            $pdf->decodeOne( CAM::PDF::Node->new( 'dictionary', $dict ) );
+        };
+        next if !defined $cmap_text || ref $cmap_text;
+
+        $cmaps{$name} = _pdf_parse_tounicode_cmap($cmap_text);
+    }
+
+    return \%cmaps;
+}
+
+sub _pdf_parse_tounicode_cmap {
+    my ($text) = @_;
+    my %map;
+    my $width = 1;
+
+    if ( $text =~ / begincodespacerange \s* < ( [0-9A-Fa-f]+ ) > /xs ) {
+        $width = int( ( length($1) + 1 ) / 2 );
+        $width = 1 if $width < 1;
+    }
+
+    while ( $text =~ / beginbfchar (.*?) endbfchar /xsg ) {
+        my $block = $1;
+        while ( $block =~ / <([0-9A-Fa-f]+)> \s* <([0-9A-Fa-f]+)> /xsg ) {
+            $map{ hex($1) } = _pdf_unicode_hex_to_chars($2);
+        }
+    }
+
+    while ( $text =~ / beginbfrange (.*?) endbfrange /xsg ) {
+        my $block = $1;
+        while ( $block =~ / <([0-9A-Fa-f]+)> \s* <([0-9A-Fa-f]+)> \s* (\[[^\]]*\]|<[0-9A-Fa-f]+>) /xsg ) {
+            my ( $start, $end, $dest ) = ( hex($1), hex($2), $3 );
+
+            if ( $dest =~ / \A \[ (.*) \] \z /xs ) {
+                my $code = $start;
+                for my $hex_val ( $1 =~ /<([0-9A-Fa-f]+)>/g ) {
+                    $map{$code} = _pdf_unicode_hex_to_chars($hex_val);
+                    $code++;
+                }
+            }
+            elsif ( $dest =~ / \A <([0-9A-Fa-f]+)> \z /xs ) {
+                my $base_hex = $1;
+                my $base     = hex($base_hex);
+                my $digits   = length $base_hex;
+                my $range_end = $end - $start > 20000 ? $start + 20000 : $end;    # guard against a pathological/malformed range
+                for my $code ( $start .. $range_end ) {
+                    $map{$code} = _pdf_unicode_hex_to_chars( sprintf( '%0' . $digits . 'X', $base + ( $code - $start ) ) );
+                }
+            }
+        }
+    }
+
+    return { width => $width, map => \%map };
+}
+
+sub _pdf_unicode_hex_to_chars {
+    my ($hex) = @_;
+    my @units = map { hex($_) } ( $hex =~ /(....)/g );
+
+    my @codepoints;
+    my $i = 0;
+    while ( $i <= $#units ) {
+        my $unit = $units[$i];
+        if ( $unit >= 0xD800 && $unit <= 0xDBFF && $i + 1 <= $#units && $units[ $i + 1 ] >= 0xDC00 && $units[ $i + 1 ] <= 0xDFFF ) {
+            push @codepoints, 0x10000 + ( ( $unit - 0xD800 ) << 10 ) + ( $units[ $i + 1 ] - 0xDC00 );
+            $i += 2;
+        }
+        else {
+            push @codepoints, $unit;
+            $i++;
+        }
+    }
+
+    return join q{}, map { chr($_) } @codepoints;
+}
+
+sub _pdf_decode_font_bytes {
+    my ( $bytes, $cmaps, $font ) = @_;
+    return $bytes if !defined $bytes || $bytes eq '';
+    return $bytes if !$font || !$cmaps || !$cmaps->{$font};
+
+    my $entry = $cmaps->{$font};
+    my $width = $entry->{width} || 1;
+    my $map   = $entry->{map}   || {};
+
+    my $decoded = q{};
+    for ( my $i = 0; $i < length $bytes; $i += $width ) {
+        my $chunk = substr( $bytes, $i, $width );
+        last if $chunk eq '';
+        my $code = 0;
+        $code = ( $code << 8 ) | ord($_) for split //, $chunk;
+        $decoded .= exists $map->{$code} ? $map->{$code} : $chunk;
+    }
+
+    require Encode;
+    return Encode::encode( 'UTF-8', $decoded );
+}
+
+# CAM::PDF::PageText->render only ever breaks a line on the relative Td/TD
+# operator (or T*). PDF::API2's $text->translate($x, $y) - the call this
+# module itself uses to lay out generated PDFs, and one many other PDF
+# writers use too - instead emits an absolute Tm text matrix, which
+# CAM::PDF::PageText never looks at. The result is every line on a page
+# getting joined with a single space, so extracted text collapses into one
+# unreadable blob with all paragraph/heading/list structure lost. This walks
+# the same page content tree CAM::PDF::PageText uses, reusing its string-
+# building heuristics for TJ/Tj/'/"/Td/TD/T*, but also breaks lines on Tm's
+# vertical movement (and treats an unusually large vertical jump as a
+# paragraph break).
+sub _pdf_render_page_text {
+    my ( $pagetree, $cmaps ) = @_;
+    $cmaps ||= {};
+
+    my $str          = q{};
+    my @stack        = ( [ @{ $pagetree->{blocks} } ] );
+    my $in_textblock = 0;
+    my $last_y;
+    my $last_gap;
+    my $font;
+
+    while ( @stack > 0 ) {
+        my $node = $stack[-1];
+        if ( ref $node ) {
+            if ( @{$node} > 0 ) {
+                my $block = shift @{$node};
+                if ( $block->{type} eq 'block' ) {
+                    if ( $block->{name} eq 'BT' ) {
+                        push @stack, 'BT';
+                        $in_textblock = 1;
+                        undef $last_y;
+                        undef $last_gap;
+                    }
+                    push @stack, [ @{ $block->{value} } ];
+                }
+                elsif ($in_textblock) {
+                    next if $block->{type} ne 'op';
+                    my @args = @{ $block->{args} };
+
+                    if    ( $block->{name} eq 'TJ' )  { $str = _pdf_op_TJ( $str, \@args, $cmaps, $font ); }
+                    elsif ( $block->{name} eq 'Tj' )  { $str = _pdf_op_Tj( $str, \@args, $cmaps, $font ); }
+                    elsif ( $block->{name} eq q{\'} ) { $str = _pdf_op_Tquote( $str, \@args, $cmaps, $font ); }
+                    elsif ( $block->{name} eq q{\"} ) { $str = _pdf_op_Tquote( $str, \@args, $cmaps, $font ); }
+                    elsif ( $block->{name} eq 'Td' )  { $str = _pdf_op_Td( $str, \@args ); }
+                    elsif ( $block->{name} eq 'TD' )  { $str = _pdf_op_Td( $str, \@args ); }
+                    elsif ( $block->{name} eq 'T*' )  { $str = _pdf_op_Tstar($str); }
+                    elsif ( $block->{name} eq 'Tm' )  { $str = _pdf_op_Tm( $str, \@args, \$last_y, \$last_gap ); }
+                    elsif ( $block->{name} eq 'Tf' )  { $font = _pdf_op_Tf( \@args ); }
+                }
+            }
+            else {
+                pop @stack;
+            }
+        }
+        else {
+            pop @stack;
+            $in_textblock = 0;
+            $str =~ s/ [ ]* \z /\n/xms;
+        }
+    }
+
+    return $str;
+}
+
+sub _pdf_op_Tf {
+    my ($args_ref) = @_;
+    return $args_ref->[0] && $args_ref->[0]->{type} eq 'label' ? $args_ref->[0]->{value} : undef;
+}
+
+sub _pdf_op_TJ {
+    my ( $str, $args_ref, $cmaps, $font ) = @_;
+    return $str if @{$args_ref} != 1 || $args_ref->[0]->{type} ne 'array';
+
+    $str =~ s/ (\S) \z /$1 /xms;
+    for my $node ( @{ $args_ref->[0]->{value} } ) {
+        if ( $node->{type} eq 'string' || $node->{type} eq 'hexstring' ) {
+            $str .= _pdf_decode_font_bytes( $node->{value}, $cmaps, $font );
+        }
+        elsif ( $node->{type} eq 'number' ) {
+            if ( $node->{value} < -250 ) {
+                $str =~ s/ (\S) \z /$1 /xms;
+            }
+        }
+    }
+    return $str;
+}
+
+sub _pdf_op_Tj {
+    my ( $str, $args_ref, $cmaps, $font ) = @_;
+    return $str
+      if @{$args_ref} < 1
+      || ( $args_ref->[-1]->{type} ne 'string' && $args_ref->[-1]->{type} ne 'hexstring' );
+
+    $str =~ s/ (\S) \z /$1 /xms;
+    return $str . _pdf_decode_font_bytes( $args_ref->[-1]->{value}, $cmaps, $font );
+}
+
+sub _pdf_op_Tquote {
+    my ( $str, $args_ref, $cmaps, $font ) = @_;
+    return $str
+      if @{$args_ref} < 1
+      || ( $args_ref->[-1]->{type} ne 'string' && $args_ref->[-1]->{type} ne 'hexstring' );
+
+    $str =~ s/ [ ]* \z /\n/xms;
+    return $str . _pdf_decode_font_bytes( $args_ref->[-1]->{value}, $cmaps, $font );
+}
+
+sub _pdf_op_Td {
+    my ( $str, $args_ref ) = @_;
+    return $str
+      if @{$args_ref} != 2
+      || $args_ref->[0]->{type} ne 'number'
+      || $args_ref->[1]->{type} ne 'number';
+
+    if ( $args_ref->[1]->{value} < 0 && 2 * ( abs $args_ref->[1]->{value} ) > abs $args_ref->[0]->{value} ) {
+        $str =~ s/ [ ]* \z /\n/xms;
+    }
+    return $str;
+}
+
+sub _pdf_op_Tstar {
+    my ($str) = @_;
+    $str =~ s/ [ ]* \z /\n/xms;
+    return $str;
+}
+
+sub _pdf_op_Tm {
+    my ( $str, $args_ref, $last_y_ref, $last_gap_ref ) = @_;
+    return $str if @{$args_ref} != 6;
+    for my $arg ( @{$args_ref} ) {
+        return $str if $arg->{type} ne 'number';
+    }
+
+    my $y = $args_ref->[5]->{value};
+    if ( defined ${$last_y_ref} ) {
+        my $dy = ${$last_y_ref} - $y;
+        if ( abs($dy) > 0.01 ) {
+            if ( $dy > 0 && defined ${$last_gap_ref} && $dy > ${$last_gap_ref} * 1.6 ) {
+                $str =~ s/ [ ]* \z /\n\n/xms;
+            }
+            else {
+                $str =~ s/ [ ]* \z /\n/xms;
+            }
+            ${$last_gap_ref} = $dy if $dy > 0;
+        }
+    }
+    ${$last_y_ref} = $y;
+    return $str;
+}
+
+# Builds a real .docx (Office Open XML WordprocessingML) package directly,
+# without any external Office backend. A .docx is just a zip of a few XML
+# parts, so this needs no dependency beyond Archive::Zip. Formatting fidelity
+# intentionally matches the existing PDF renderer: headings are bold/sized
+# text (no literal '#'), bullets/blockquotes get a plain text prefix, and
+# inline markdown markers like **bold** are left as literal characters,
+# since block->{text} is already plain text by the time it reaches here.
+sub _default_markdown_to_docx {
+    my ( $markdown, $to, $enhancer ) = @_;
+    require Archive::Zip;
+    $enhancer ||= Markdown::Enhancer->new;
+
+    my $body_xml = join q{}, map { _docx_block_xml($_) } @{ $enhancer->parse_blocks($markdown) };
+    $body_xml = '<w:p/>' if !length $body_xml;
+
+    my $zip = Archive::Zip->new;
+    $zip->addString( _docx_content_types_xml(), '[Content_Types].xml' );
+    $zip->addString( _docx_rels_xml(),           '_rels/.rels' );
+    my $doc_member = $zip->addString( _docx_document_xml($body_xml), 'word/document.xml' );
+    $doc_member->desiredCompressionMethod( Archive::Zip::COMPRESSION_DEFLATED() );
+
+    my $write_result = $zip->writeToFileNamed($to);
+    die "Unable to write DOCX file: $to\n" if $write_result != Archive::Zip::AZ_OK();
+
+    return 1;
+}
+
+sub _docx_block_xml {
+    my ($block) = @_;
+    my $type = $block->{type};
+
+    return _docx_table_xml( $block->{rows} ) if $type eq 'table';
+    return '<w:p/>' if $type eq 'blank';
+
+    if ( $type eq 'code' ) {
+        my @lines = @{ $block->{lines} };
+        return '<w:p/>' if !@lines;
+        return join q{}, map { _docx_paragraph_xml( $_, mono => 1 ) } @lines;
+    }
+
+    return _docx_paragraph_xml( $block->{text}, bold => 1, size => _docx_heading_point_size( $block->{level} ) )
+      if $type eq 'heading';
+    return _docx_paragraph_xml( '* ' . $block->{text} )      if $type eq 'bullet';
+    return _docx_paragraph_xml( 'Quote: ' . $block->{text} ) if $type eq 'blockquote';
+    return _docx_paragraph_xml( $block->{text} )              if $type eq 'paragraph';
+
+    return '';
+}
+
+sub _docx_heading_point_size {
+    my ($level) = @_;
+    my @sizes = ( 24, 18, 14, 13, 12, 11 );
+    return $sizes[ ( $level || 1 ) - 1 ] || 11;
+}
+
+sub _docx_paragraph_xml {
+    my ( $text, %opt ) = @_;
+    $text = '' if !defined $text;
+    return '<w:p/>' if $text eq '';
+
+    my $half_points = ( $opt{size} || 12 ) * 2;
+    my $rpr = '<w:rPr>';
+    $rpr .= '<w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/>' if $opt{mono};
+    $rpr .= '<w:b/><w:bCs/>' if $opt{bold};
+    $rpr .= qq{<w:sz w:val="$half_points"/><w:szCs w:val="$half_points"/>};
+    $rpr .= '</w:rPr>';
+
+    return qq{<w:p><w:r>$rpr<w:t xml:space="preserve">} . _docx_escape($text) . qq{</w:t></w:r></w:p>};
+}
+
+sub _docx_table_xml {
+    my ($rows) = @_;
+    $rows ||= [];
+    return '' if !@{$rows};
+
+    my $columns = scalar @{ $rows->[0] || [] } || 1;
+    my $xml = '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/><w:tblBorders>'
+      . join( q{}, map { qq{<w:$_ w:val="single" w:sz="4" w:space="0" w:color="auto"/>} } qw(top left bottom right insideH insideV) )
+      . '</w:tblBorders></w:tblPr>'
+      . ( '<w:tblGrid>' . ( '<w:gridCol w:w="2000"/>' x $columns ) . '</w:tblGrid>' );
+
+    for my $row_index ( 0 .. $#$rows ) {
+        my $row = $rows->[$row_index];
+        $xml .= '<w:tr>';
+        for my $cell ( @{$row} ) {
+            my $plain = Markdown::Enhancer->_plain_inline($cell);
+            $xml .= '<w:tc>' . _docx_paragraph_xml( $plain, bold => ( $row_index == 0 ? 1 : 0 ) ) . '</w:tc>';
+        }
+        $xml .= '</w:tr>';
+    }
+
+    $xml .= '</w:tbl>';
+    return $xml;
+}
+
+sub _docx_document_xml {
+    my ($body_xml) = @_;
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      . '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+      . '<w:body>'
+      . $body_xml
+      . '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1417" w:bottom="1417" w:left="1417"/></w:sectPr>'
+      . '</w:body></w:document>';
+}
+
+sub _docx_content_types_xml {
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      . '<Default Extension="xml" ContentType="application/xml"/>'
+      . '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+      . '</Types>';
+}
+
+sub _docx_rels_xml {
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+      . '</Relationships>';
+}
+
+sub _docx_escape {
+    my ($text) = @_;
+    $text = '' if !defined $text;
+    $text =~ s/&/&amp;/g;
+    $text =~ s/</&lt;/g;
+    $text =~ s/>/&gt;/g;
+    $text =~ s/"/&quot;/g;
+    return $text;
 }
 
 sub _ensure_output_dir {
@@ -876,8 +1317,24 @@ sub _libreoffice_convert {
     my ( undef, $outdir, undef ) = fileparse($to);
     my $abs_from = abs_path($from) || $from;
     my $abs_dir  = abs_path($outdir) || $outdir;
-    my @cmd = ( $binary, '--headless', '--convert-to', $format, '--outdir', $abs_dir, $abs_from );
+
+    # soffice always names its output after the SOURCE basename inside
+    # --outdir, ignoring whatever target filename was actually requested, and
+    # happily overwrites anything already sitting at that path. Converting
+    # into a dedicated scratch directory (rather than the real output
+    # directory) means that renaming the result into place can never clobber
+    # an unrelated pre-existing file that happens to share the source's
+    # basename.
+    my $scratch_dir = tempdir( CLEANUP => 1 );
+    my @cmd = ( $binary, '--headless', '--convert-to', $format, '--outdir', $scratch_dir, $abs_from );
     $self->{run_command}->(@cmd);
+
+    if ( !-f $to ) {
+        my ($from_name) = fileparse( $from, qr/\.[^.]*/ );
+        my $produced = File::Spec->catfile( $scratch_dir, "$from_name.$format" );
+        move( $produced, $to ) if -f $produced;
+    }
+
     die "Converted file was not created: $to\n" if !-f $to;
     return 1;
 }

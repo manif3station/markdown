@@ -18,6 +18,7 @@ like( $cpanfile, qr/requires 'Markdown::Perl'/, 'cpanfile includes Markdown::Per
 like( $cpanfile, qr/requires 'HTML::WikiConverter'/, 'cpanfile includes HTML::WikiConverter' );
 like( $cpanfile, qr/requires 'PDF::API2'/, 'cpanfile includes PDF::API2' );
 like( $cpanfile, qr/requires 'CAM::PDF'/, 'cpanfile includes CAM::PDF' );
+like( $cpanfile, qr/requires 'Archive::Zip'/, 'cpanfile includes Archive::Zip for the pure-Perl docx writer' );
 
 my $aptfile = do {
     open my $fh, '<', 'aptfile' or die "Unable to read aptfile: $!";
