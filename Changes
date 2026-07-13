@@ -1,5 +1,29 @@
 Revision history for markdown
 
+0.15 2026-07-13
+    - fixed pdf-to-docx: LibreOffice cannot export a PDF import to DOCX on any
+      platform, so the route now extracts text with the `CAM::PDF` engine and
+      writes a real DOCX package directly with `Archive::Zip`; Windows still
+      prefers Microsoft Word automation when Word is installed
+    - fixed pdf-to-markdown returning empty text for office-produced PDFs by
+      stripping BDC/BMC/EMC marked-content operators that break CAM::PDF's
+      block matcher
+    - fixed pdf-to-markdown decoding subsetted embedded fonts through their
+      /ToUnicode CMaps instead of emitting raw font byte codes
+    - fixed pdf-to-markdown line breaks for PDFs positioned with Tm text
+      matrices (PDF::API2 output included), covering TJ/Tj/'/"/Td/TD/T*
+    - added real-backend conversion tests and PDF text-operator tests;
+      restored the 100% coverage gate the original bugfix commit shipped
+      without (retroactive gating of commit 61c8ed9)
+    - fixed Windows Word detection to probe the registered `Word.Application`
+      COM class instead of treating PowerShell's presence as proof of Word;
+      Office-less Windows hosts now fall back to the pure-Perl DOCX writer
+      (found by the real-Windows platform gate)
+    - fixed test-suite portability: `$^X` instead of a hard-coded `/bin/true`
+      (absent on macOS), OS-appropriate PowerShell fakes, `$Config{path_sep}`
+      PATH joins, and Windows skips for POSIX executable-bit checks
+      (found by the real-macOS and real-Windows platform gates)
+
 0.14 2026-05-07
     - changed `.docx` input with no target to recover sibling markdown by default
     - added explicit `.docx` to `.md` and `.md` to `.docx` routes

@@ -7,7 +7,7 @@ ok( -f 'config/config.json', 'skill keeps a config/config.json file' );
 ok( -f 'aptfile', 'skill declares Linux host dependencies in aptfile' );
 ok( -f 'brewfile', 'skill declares macOS host dependencies in brewfile' );
 ok( -f 'cpanfile', 'skill declares Perl module dependencies in cpanfile' );
-ok( -x 'cli/convert', 'skill ships an executable cli/convert entrypoint' );
+ok( ( $^O eq 'MSWin32' ? -f 'cli/convert' : -x 'cli/convert' ), 'skill ships an executable cli/convert entrypoint' );
 
 my $cpanfile = do {
     open my $fh, '<', 'cpanfile' or die "Unable to read cpanfile: $!";

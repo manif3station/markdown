@@ -125,3 +125,24 @@ docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-tes
 - Cleanup:
   - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'rm -rf /workspace/skills/markdown/cover_db'`
   - Result: pass
+
+## Latest Verification For `DD-386`
+
+- Functional test:
+  - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && cpanm --quiet --notest --installdeps . && rm -rf cover_db && prove -lr t'`
+  - Result: pass
+  - Test count: `Files=8, Tests=339`
+- Coverage test:
+  - `docker compose -f ~/projects/skills/docker-compose.testing.yml run --rm perl-test bash -lc 'cd /workspace/skills/markdown && cpanm --quiet --notest --installdeps . && rm -rf cover_db && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t && cover -report text -select_re "^lib/" -coverage statement -coverage subroutine && rm -rf cover_db'`
+  - Result: pass
+  - Coverage: `100.0%` statement and `100.0%` subroutine for `lib/Markdown/CLI.pm`, `lib/Markdown/Enhancer.pm`, and `lib/Markdown/Runner.pm`
+- Platform gate (part of the E2E test gate), run on the real QEMU labs:
+  - macOS: `ssh macdev` (macOS `14.8.5`, perl `5.34`, skill deps via `cpanm -l ~/perl5`); `prove -lr t` → pass, `Files=8, Tests=339`
+    - the first macOS run failed tests 65-66 of `t/01-runner-plan.t`: a hard-coded `/bin/true` does not exist on macOS (`true` lives in `/usr/bin`); fixed by testing subprocess success through `$^X -e 'exit 0'` and an OS-appropriate PowerShell fake
+  - Windows: `ssh windev` (fresh Windows 11 QEMU install, Strawberry Perl `5.40` portable); `prove -lr t` via a detached `schtasks` run → pass, `Files=8, Tests=339`, `prove-exit 0`
+    - the first Windows run failed 7 tests of `t/06-real-conversions.t` and exposed a real runtime bug: `_windows_word_available` treated PowerShell's presence as proof of Microsoft Word, so Office-less Windows died inside PowerShell COM automation instead of falling back to the pure-Perl DOCX writer; fixed with a `Word.Application` COM registry probe (`word_probe`, injectable)
+    - `t/03-deps-and-config.t` test 5 (`-x cli/convert`) fails on Windows because POSIX executable bits do not exist there; the test now checks `-f` on `MSWin32`
+  - LibreOffice-dependent `t/06` chain blocks skip in the shared `perl-test` container and on the QEMU guests (no `soffice`); the pure-Perl pdf-to-docx blocks run everywhere
+- Cleanup:
+  - `cover_db` removed from the skill folder after verification
+  - both QEMU lab VMs stopped after the platform runs (`docker compose stop`, not `down`, to preserve the windev disk)

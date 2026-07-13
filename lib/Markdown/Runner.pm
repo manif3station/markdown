@@ -28,6 +28,7 @@ sub new {
         run_command      => $args{run_command} || \&_run_command,
         run_osascript    => $args{run_osascript} || \&_run_osascript,
         run_powershell   => $args{run_powershell} || \&_run_powershell,
+        word_probe       => $args{word_probe} || \&_probe_windows_word,
     }, $class;
     return $self;
 }
@@ -1299,9 +1300,21 @@ sub _soffice_binary {
     return;
 }
 
+# Every Windows machine ships PowerShell, so its presence says nothing about
+# whether Microsoft Word is installed; treating it as a Word signal made
+# pdf-to-docx and docx-to-pdf die on Office-less Windows hosts instead of
+# falling back. Word registers the Word.Application COM class, and reg.exe
+# query is the cheapest way to detect that class without starting Word.
 sub _windows_word_available {
     my ($self) = @_;
-    return $self->{find_binary}->('powershell.exe') || $self->{find_binary}->('powershell');
+    my $ps = $self->{find_binary}->('powershell.exe') || $self->{find_binary}->('powershell');
+    return 0 if !$ps;
+    return $self->{word_probe}->($self) ? 1 : 0;
+}
+
+sub _probe_windows_word {
+    my $out = `reg query HKCR\\Word.Application 2>&1`;
+    return defined $out && $? == 0 ? 1 : 0;
 }
 
 sub _macos_word_available {

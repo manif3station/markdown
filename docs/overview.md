@@ -28,6 +28,8 @@ For docx-to-pdf, the skill uses host Office backends:
 - macOS prefers Microsoft Word automation when Word is installed, with LibreOffice fallback
 - Windows prefers Microsoft Word automation through PowerShell COM when Word is installed, with LibreOffice fallback
 
+Word presence on Windows is detected through the registered `Word.Application` COM class (via `reg query`), not through PowerShell's existence: PowerShell ships on every Windows machine, and treating it as a Word signal made Office-less Windows hosts die inside PowerShell instead of falling back.
+
 For pdf-to-docx (and, by extension, markdown-to-docx, which chains through pdf-to-docx), the skill does *not* use LibreOffice: `soffice` always imports a PDF as a Draw document, and Draw documents have no export filter to DOCX, so `soffice --convert-to docx some.pdf` fails unconditionally with "no export filter ... aborting" on every platform. Instead the skill extracts text with the same `CAM::PDF`-based engine used for pdf-to-markdown and writes a real DOCX package directly with `Archive::Zip` - no Office backend required. Windows still prefers real Microsoft Word automation here when Word is installed, since Word can genuinely reflow a PDF into editable text on open.
 
 The skill also adds a local `Markdown::Enhancer` layer above those modules. That layer patches the parts the base stack is weak on:

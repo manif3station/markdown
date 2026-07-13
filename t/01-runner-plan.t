@@ -1,6 +1,7 @@
 use strict;
 use warnings;
 
+use Config;
 use Cwd qw(abs_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -343,6 +344,7 @@ my $runner = Markdown::Runner->new(
     my $windows_runner = Markdown::Runner->new(
         platform       => 'MSWin32',
         find_binary    => sub { return 'powershell.exe' if $_[0] eq 'powershell.exe'; return; },
+        word_probe     => sub { return 1 },
         run_powershell => sub {
             @call = @_;
             open my $out, '>', $to or die "Unable to write $to: $!";
@@ -582,7 +584,9 @@ my $runner = Markdown::Runner->new(
     ok( -f $to, 'linux pdf to docx creates the output file' );
 }
 
-{
+SKIP: {
+    skip 'extension-less fake tools are not executable on Windows', 2 if $^O eq 'MSWin32';
+
     my $tmp = tempdir( CLEANUP => 1 );
     my $tool = File::Spec->catfile( $tmp, 'fake-tool' );
     open my $fh, '>', $tool or die "Unable to write $tool: $!";
@@ -598,7 +602,9 @@ my $runner = Markdown::Runner->new(
     is( $found_from_path, $tool, 'find_binary resolves executables from PATH' );
 }
 
-{
+SKIP: {
+    skip 'extension-less fake tools are not executable on Windows', 1 if $^O eq 'MSWin32';
+
     my $tmp = tempdir( CLEANUP => 1 );
     my $cwd = File::Spec->catdir( $tmp, 'cwd' );
     my $bin = File::Spec->catdir( $cwd, 'bin' );
@@ -652,23 +658,63 @@ my $runner = Markdown::Runner->new(
 }
 
 {
-    my $ok = eval { Markdown::Runner::_run_command('/bin/true'); 1 };
+    # $^X is the only executable guaranteed to exist on every platform; a
+    # hard-coded /bin/true breaks on macOS, where true lives in /usr/bin.
+    my $ok = eval { Markdown::Runner::_run_command( $^X, '-e', 'exit 0' ); 1 };
     ok( $ok, 'run_command succeeds when the subprocess exits zero' );
 }
 
 {
-    my $ok = eval { Markdown::Runner::_run_powershell( '/bin/true', 'ignored', 'a', 'b' ); 1 };
-    ok( $ok, 'run_powershell succeeds when the subprocess exits zero' );
+    # PowerShell exists on every Windows machine, so Word availability must
+    # come from the Word COM registration probe, not from PowerShell alone.
+    my $with_word = Markdown::Runner->new(
+        platform    => 'MSWin32',
+        find_binary => sub { return 'powershell.exe' if $_[0] eq 'powershell.exe'; return; },
+        word_probe  => sub { return 1 },
+    );
+    is( $with_word->_windows_word_available, 1, 'word availability is confirmed when powershell exists and the COM probe passes' );
+
+    my $without_word = Markdown::Runner->new(
+        platform    => 'MSWin32',
+        find_binary => sub { return 'powershell.exe' if $_[0] eq 'powershell.exe'; return; },
+        word_probe  => sub { return 0 },
+    );
+    is( $without_word->_windows_word_available, 0, 'word availability is denied when the COM probe fails despite powershell existing' );
+
+    my $without_powershell = Markdown::Runner->new(
+        platform    => 'MSWin32',
+        find_binary => sub { return; },
+        word_probe  => sub { die "probe must not run without powershell\n" },
+    );
+    is( $without_powershell->_windows_word_available, 0, 'word availability is denied without powershell before probing' );
+
+    my $probe_result = Markdown::Runner::_probe_windows_word();
+    ok( defined $probe_result && ( $probe_result == 0 || $probe_result == 1 ),
+        'the real Word COM probe returns a defined boolean on every platform' );
 }
 
 {
+    my $tmp  = tempdir( CLEANUP => 1 );
+    my $fake = File::Spec->catfile( $tmp, $^O eq 'MSWin32' ? 'fake-ps.bat' : 'fake-ps' );
+    open my $fh, '>', $fake or die "Unable to write $fake: $!";
+    print {$fh} $^O eq 'MSWin32' ? "\@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n";
+    close $fh or die "Unable to close $fake: $!";
+    chmod 0755, $fake or die "Unable to chmod $fake: $!";
+
+    my $ok = eval { Markdown::Runner::_run_powershell( $fake, 'ignored', 'a', 'b' ); 1 };
+    ok( $ok, 'run_powershell succeeds when the subprocess exits zero' );
+}
+
+SKIP: {
+    skip 'osascript fakes need a POSIX shell', 1 if $^O eq 'MSWin32';
+
     my $tmp = tempdir( CLEANUP => 1 );
     my $fake = File::Spec->catfile( $tmp, 'osascript' );
     open my $fh, '>', $fake or die "Unable to write $fake: $!";
     print {$fh} "#!/bin/sh\ncat >/dev/null\nexit 0\n";
     close $fh or die "Unable to close $fake: $!";
     chmod 0755, $fake or die "Unable to chmod $fake: $!";
-    local $ENV{PATH} = join ':', $tmp, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join $Config{path_sep}, $tmp, ( $ENV{PATH} || '' );
 
     my $ok = eval { Markdown::Runner::_run_osascript( "on run argv\nreturn\nend run\n", 'a', 'b' ); 1 };
     ok( $ok, 'run_osascript succeeds when the osascript subprocess exits zero' );

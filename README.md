@@ -25,10 +25,12 @@ This skill adds a CLI converter that:
 - turns docx into markdown
 - turns pdf into docx when the target path ends in `.docx`
 - keeps markdown/html/pdf routes on Perl modules
-- uses host Office backends for docx/pdf routes:
+- uses host Office backends for docx-to-pdf:
   - Linux: LibreOffice / `soffice`
-  - macOS: Microsoft Word automation first for docx-to-pdf, LibreOffice fallback, LibreOffice for pdf-to-docx
+  - macOS: Microsoft Word automation first, LibreOffice fallback
   - Windows: Microsoft Word automation through PowerShell COM first, LibreOffice fallback
+- detects Word on Windows through its registered `Word.Application` COM class, so Office-less Windows hosts fall back cleanly instead of failing inside PowerShell
+- writes pdf-to-docx output directly with the pure-Perl `CAM::PDF` text extractor and `Archive::Zip` DOCX writer on every platform, because LibreOffice cannot export a PDF import to DOCX; Windows still prefers real Microsoft Word automation when Word is installed
 - adds a skill-local enhancer layer on top of those Perl modules for markdown features the base stack is weak on, such as tables and inline code
 - reuses the source basename when the caller does not provide an explicit output path
 - appends the right output extension when `--to` omits it
@@ -67,6 +69,7 @@ The current Perl modules are:
 - `HTML::WikiConverter`
 - `PDF::API2`
 - `CAM::PDF`
+- `Archive::Zip`
 
 On top of that CPAN stack, the skill ships `Markdown::Enhancer` to improve output for:
 
@@ -75,11 +78,13 @@ On top of that CPAN stack, the skill ships `Markdown::Enhancer` to improve outpu
 - fenced code blocks
 - blockquotes
 
-For office-document routes, the skill also declares host backends:
+For the docx-to-pdf route, the skill also declares host backends:
 
 - Linux: `aptfile` installs `libreoffice`
 - macOS: `brewfile` installs `libreoffice`
 - Windows: install Microsoft Word or LibreOffice on the host
+
+The pdf-to-docx route (and markdown-to-docx, which chains through it) needs no host Office backend; it runs on the pure-Perl CPAN stack alone.
 
 ## How To Use It
 
